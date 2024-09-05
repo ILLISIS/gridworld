@@ -8,7 +8,7 @@ local function on_entity_added(_, entity)
 		global.gridworld.map.added_entities_to_update = {}
 	end
 	table.insert(global.gridworld.map.added_entities_to_update, entity)
-	local registration = script.register_on_entity_destroyed(entity)
+	local registration = script.register_on_object_destroyed(entity)
 	global.gridworld.map.entity_registrations[registration] = {
 		position = entity.position,
 		bounding_box = entity.bounding_box,

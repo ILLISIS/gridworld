@@ -184,12 +184,12 @@ gridworld.events[defines.events.script_raised_revive] = function(event)
 		end
 	end
 end
-gridworld.events[defines.events.on_entity_destroyed] = function(event)
+gridworld.events[defines.events.on_object_destroyed] = function(event)
 	if not global.gridworld.lobby_server then
 		-- This event is triggered after the entity is gone, so we can't use it to get the entity
 		-- Instead, use the registration_number stored previously.
-		map.events.on_entity_destroyed(event) -- Run before load balancing to hijack its event registrations
-		load_balancing.events.on_entity_destroyed(event)
+		map.events.on_object_destroyed(event) -- Run before load balancing to hijack its event registrations
+		load_balancing.events.on_object_destroyed(event)
 	end
 end
 -- "Soft" entity removal events, used for cleanup of things we havent registered

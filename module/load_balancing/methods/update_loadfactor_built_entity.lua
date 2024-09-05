@@ -5,7 +5,7 @@ local constants = require("modules/gridworld/constants")
 
 local function update_loadfactor_built_entity(entity)
 	if constants.load_balancing_weights[entity.type] ~= nil then
-		local registration = script.register_on_entity_destroyed(entity)
+		local registration = script.register_on_object_destroyed(entity)
 		global.gridworld.load_balancing.entity_destroyed_registrations[registration] = {
 			type = entity.type
 		}

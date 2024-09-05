@@ -3,7 +3,7 @@
 ]]
 local constants = require("modules/gridworld/constants")
 
-local function on_entity_destroyed(event)
+local function on_object_destroyed(event)
 	local registration_number = event.registration_number
 	local data = global.gridworld.load_balancing.entity_destroyed_registrations[registration_number]
 	if data ~= nil then
@@ -16,4 +16,4 @@ local function on_entity_destroyed(event)
 		end
 	end
 end
-return on_entity_destroyed
+return on_object_destroyed

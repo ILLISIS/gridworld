@@ -17,7 +17,7 @@ return {
 		on_built_entity = entity_added,
 		on_biter_base_built = entity_added,
 		on_entity_cloned = entity_added,
-		on_entity_destroyed = entity_removed,
+		on_object_destroyed = entity_removed,
 		on_robot_built_entity = entity_added,
 		script_raised_built = entity_added,
 		script_raised_revive = entity_added,

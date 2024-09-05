@@ -229,7 +229,7 @@ do -- Factorio STDs--
 					'object_name',
 					'set_event_filter',
 					'get_event_filter',
-					'register_on_entity_destroyed',
+					'register_on_object_destroyed',
 					level = {
 					  fields = {'is_simulation', 'is_tutorial', 'campaign_name', 'level_name', 'mod_name'},
 					  read_only = true
@@ -749,7 +749,7 @@ do -- Factorio Defines STDs--
 							'on_player_toggled_map_editor', 'on_player_clicked_gps_tag', 'on_entity_died',
 							'on_chart_tag_added', 'on_player_removed', 'on_script_inventory_resized',
 							'on_robot_mined_entity', 'on_forces_merging', 'on_research_started', 'on_rocket_launch_ordered',
-							'on_entity_destroyed', 'on_player_setup_blueprint', 'on_player_display_scale_changed',
+							'on_object_destroyed', 'on_player_setup_blueprint', 'on_player_display_scale_changed',
 							'on_post_entity_died', 'on_train_changed_state', 'on_biter_base_built',
 							'on_player_trash_inventory_changed', 'on_pre_script_inventory_resized', 'on_console_chat',
 							'on_gui_opened', 'on_surface_cleared', 'on_chart_tag_modified', 'on_character_corpse_expired',

@@ -3,7 +3,7 @@
 ]]
 local on_built_entity = require("modules/gridworld/load_balancing/events/on_built_entity")
 local on_entity_cloned = require("modules/gridworld/load_balancing/events/on_entity_cloned")
-local on_entity_destroyed = require("modules/gridworld/load_balancing/events/on_entity_destroyed")
+local on_object_destroyed = require("modules/gridworld/load_balancing/events/on_object_destroyed")
 -- Nth tick handler just needs to run every now and then, can be bumped down for performance
 local on_nth_tick = require("modules/gridworld/load_balancing/events/on_nth_tick")
 local on_player_joined_game = require("modules/gridworld/load_balancing/events/on_player_joined_game")
@@ -21,7 +21,7 @@ return {
 		},
 		on_built_entity = on_built_entity,
 		on_entity_cloned = on_entity_cloned,
-		on_entity_destroyed = on_entity_destroyed,
+		on_object_destroyed = on_object_destroyed,
 		on_nth_tick = on_nth_tick,
 		on_player_joined_game = on_player_joined_game,
 		on_player_left_game = on_player_left_game,
