@@ -117,6 +117,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	private tilesByInstance = new Map<number, TileRecord>();
 	private pendingTiles = new Map<string, Promise<TileRecord>>();
 	private pendingStarts = new Map<number, Promise<void>>();
+	private hostAssignIndex = 0;
 	private storageDirty = false;
 	private parsedMapSettings: ParsedMapSettings | null = null;
 	private mapExchangeError: string | null = null;
@@ -251,21 +252,15 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	}
 
 	private getHostIdForTile(): number | undefined {
-		const configuredHostId = this.controller.config.get("gridworld.assign_host_id");
-		if (configuredHostId !== null) {
-			if (!this.controller.wsServer.hostConnections.has(configuredHostId)) {
-				this.logger.warn(`Configured host ${configuredHostId} is not connected.`);
-				return undefined;
-			}
-			return configuredHostId;
-		}
 		const hostIds = [...this.controller.wsServer.hostConnections.keys()];
 		if (!hostIds.length) {
 			this.logger.warn("No hosts connected; cannot assign new gridworld instances.");
 			return undefined;
 		}
 		hostIds.sort((a, b) => a - b);
-		return hostIds[0];
+		const hostId = hostIds[this.hostAssignIndex % hostIds.length];
+		this.hostAssignIndex = (this.hostAssignIndex + 1) % hostIds.length;
+		return hostId;
 	}
 
 	private async assignAndSetupInstance(tile: TileRecord) {

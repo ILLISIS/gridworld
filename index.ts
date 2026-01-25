@@ -21,7 +21,6 @@ declare module "@clusterio/lib" {
 		"gridworld.surface_name": string;
 		"gridworld.initial_tile_x": number;
 		"gridworld.initial_tile_y": number;
-		"gridworld.assign_host_id": number | null;
 		"gridworld.auto_start_instances": boolean;
 		"gridworld.save_name_prefix": string;
 	}
@@ -63,12 +62,6 @@ export const plugin: lib.PluginDeclaration = {
 			description: "Y coordinate of the initial tile.",
 			type: "number",
 			initialValue: 0,
-		},
-		"gridworld.assign_host_id": {
-			title: "Assign Host Id",
-			description: "Host id to assign new tiles to. Leave blank for the first connected host.",
-			type: "number",
-			optional: true,
 		},
 		"gridworld.auto_start_instances": {
 			title: "Auto Start Instances",
