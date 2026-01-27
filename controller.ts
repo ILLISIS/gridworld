@@ -47,6 +47,14 @@ const NEIGHBOR_DELTAS = [
 	{ dx: -1, dy: 0 },
 ];
 
+const ACTIVE_INSTANCE_STATUSES = new Set<lib.InstanceStatus>([
+	"starting",
+	"running",
+	"stopping",
+	"creating_save",
+	"exporting_data",
+]);
+
 function tileKey(x: number, y: number) {
 	return `${x},${y}`;
 }
@@ -517,6 +525,40 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 	}
 
+	private async stopInstanceBeforeDelete(instanceId: number, context?: string) {
+		const instance = this.controller.instances.get(instanceId);
+		if (!instance) {
+			return;
+		}
+
+		if (!ACTIVE_INSTANCE_STATUSES.has(instance.status)) {
+			return;
+		}
+
+		try {
+			await this.controller.sendTo(
+				{ instanceId },
+				new lib.InstanceStopRequest(),
+			);
+		} catch (err: any) {
+			const contextSuffix = context ? ` (${context})` : "";
+			this.logger.error(
+				`Failed stopping instance ${instanceId}${contextSuffix}: ${err?.message ?? err}`,
+			);
+			return;
+		}
+
+		const deadline = Date.now() + 5000;
+		while (Date.now() < deadline) {
+			const updated = this.controller.instances.get(instanceId);
+			if (!updated || !ACTIVE_INSTANCE_STATUSES.has(updated.status)) {
+				break;
+			}
+			/* eslint-disable-next-line no-await-in-loop */
+			await new Promise(resolve => setTimeout(resolve, 250));
+		}
+	}
+
 	private getState(): messages.GridworldStateResponse {
 		const tiles = [...this.tiles.values()].map(tile => ({
 			x: tile.x,
@@ -563,6 +605,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 
 		const deletedInstanceIds = new Set<number>();
 		for (const tile of tiles) {
+			await this.stopInstanceBeforeDelete(tile.instanceId, `gridworld tile ${tile.x},${tile.y}`);
 			try {
 				await this.controller.instanceDelete(tile.instanceId);
 				deletedInstanceIds.add(tile.instanceId);
@@ -582,6 +625,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			if (!name.startsWith(namePrefix)) {
 				continue;
 			}
+			await this.stopInstanceBeforeDelete(instance.id, name);
 			try {
 				await this.controller.instanceDelete(instance.id);
 			} catch (err: any) {
