@@ -296,23 +296,32 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		const offsetY = y * tileSize;
 		const mapGenSettings = deepClone(this.parsedMapSettings.mapGenSettings);
 		const mapSettings = deepClone(this.parsedMapSettings.mapSettings);
+		const isCentralTile = x === 0 && y === 0;
 
 		if (mapGenSettings.area_to_generate_at_start) {
-			const area = mapGenSettings.area_to_generate_at_start;
-			if (area.left_top) {
-				area.left_top.x += offsetX;
-				area.left_top.y += offsetY;
-			}
-			if (area.right_bottom) {
-				area.right_bottom.x += offsetX;
-				area.right_bottom.y += offsetY;
+			if (isCentralTile) {
+				const area = mapGenSettings.area_to_generate_at_start;
+				if (area.left_top) {
+					area.left_top.x += offsetX;
+					area.left_top.y += offsetY;
+				}
+				if (area.right_bottom) {
+					area.right_bottom.x += offsetX;
+					area.right_bottom.y += offsetY;
+				}
+			} else {
+				delete mapGenSettings.area_to_generate_at_start;
 			}
 		}
 		if (Array.isArray(mapGenSettings.starting_points)) {
-			mapGenSettings.starting_points = mapGenSettings.starting_points.map((point: { x: number; y: number }) => ({
-				x: point.x + offsetX,
-				y: point.y + offsetY,
-			}));
+			if (isCentralTile) {
+				mapGenSettings.starting_points = mapGenSettings.starting_points.map((point: { x: number; y: number }) => ({
+					x: point.x + offsetX,
+					y: point.y + offsetY,
+				}));
+			} else {
+				mapGenSettings.starting_points = [];
+			}
 		}
 
 		const seed = typeof mapGenSettings.seed === "number"
