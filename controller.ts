@@ -519,9 +519,24 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				new lib.InstanceStartRequest(tile.saveName),
 			);
 			this.logger.info(`Started tile ${tile.x},${tile.y} (${reason})`);
+			await this.configureFreeplayIntro(tile);
 		} catch (err: any) {
 			this.logger.error(
 				`Failed starting instance ${tile.instanceId} for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+			);
+		}
+	}
+
+	private async configureFreeplayIntro(tile: TileRecord) {
+		const commands = [
+			`/c remote.call("freeplay", "set_disable_crashsite", true)`,
+			`/c remote.call("freeplay", "set_skip_intro", true)`,
+		];
+
+		for (const command of commands) {
+			await this.controller.sendTo(
+				{ instanceId: tile.instanceId },
+				new lib.InstanceSendRconRequest(command),
 			);
 		}
 	}
