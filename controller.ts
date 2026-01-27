@@ -255,6 +255,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.logger.info(`Created tile ${x},${y} for instance ${instanceId} (${reason})`);
 
 		await this.assignAndSetupInstance(tile);
+		await this.ensureInstanceStarted(tile, reason);
 		await this.ensureEdgesForTile(tile);
 		return tile;
 	}
