@@ -291,15 +291,22 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		if (!this.parsedMapSettings) {
 			return null;
 		}
-		const tileSize = this.controller.config.get("gridworld.tile_size");
-		const offsetX = x * tileSize;
-		const offsetY = y * tileSize;
 		const mapGenSettings = deepClone(this.parsedMapSettings.mapGenSettings);
 		const mapSettings = deepClone(this.parsedMapSettings.mapSettings);
-		const isCentralTile = x === 0 && y === 0;
+		const initialX = this.controller.config.get("gridworld.initial_tile_x");
+		const initialY = this.controller.config.get("gridworld.initial_tile_y");
+		const isInitialTile = x === initialX && y === initialY;
 
-		if (mapGenSettings.area_to_generate_at_start) {
-			if (isCentralTile) {
+		if (!isInitialTile) {
+			delete mapGenSettings.area_to_generate_at_start;
+			if (Array.isArray(mapGenSettings.starting_points)) {
+				mapGenSettings.starting_points = [];
+			}
+		} else {
+			const tileSize = this.controller.config.get("gridworld.tile_size");
+			const offsetX = x * tileSize;
+			const offsetY = y * tileSize;
+			if (mapGenSettings.area_to_generate_at_start) {
 				const area = mapGenSettings.area_to_generate_at_start;
 				if (area.left_top) {
 					area.left_top.x += offsetX;
@@ -309,18 +316,12 @@ export class ControllerPlugin extends BaseControllerPlugin {
 					area.right_bottom.x += offsetX;
 					area.right_bottom.y += offsetY;
 				}
-			} else {
-				delete mapGenSettings.area_to_generate_at_start;
 			}
-		}
-		if (Array.isArray(mapGenSettings.starting_points)) {
-			if (isCentralTile) {
+			if (Array.isArray(mapGenSettings.starting_points)) {
 				mapGenSettings.starting_points = mapGenSettings.starting_points.map((point: { x: number; y: number }) => ({
 					x: point.x + offsetX,
 					y: point.y + offsetY,
 				}));
-			} else {
-				mapGenSettings.starting_points = [];
 			}
 		}
 
