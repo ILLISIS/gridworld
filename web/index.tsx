@@ -6,6 +6,7 @@ import {
 	PageHeader,
 	PageLayout,
 	notifyErrorHandler,
+	useHosts,
 } from "@clusterio/web_ui";
 import { Alert, Button, Card, Empty, Popconfirm, Space, Spin, Typography } from "antd";
 
@@ -17,9 +18,18 @@ const { Text } = Typography;
 
 function GridworldPage() {
 	const control = useContext(ControlContext);
+	const [hosts, hostsSynced] = useHosts();
 	const [state, setState] = useState<messages.GridworldStateResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [actionBusy, setActionBusy] = useState(false);
+	const hasConnectedHost = useMemo(() => {
+		for (const host of hosts.values()) {
+			if (host.connected) {
+				return true;
+			}
+		}
+		return false;
+	}, [hosts]);
 
 	const loadState = useCallback(async () => {
 		setLoading(true);
@@ -107,6 +117,9 @@ function GridworldPage() {
 		return cells;
 	}, [bounds, tileMap]);
 
+	const createDisabled = loading || actionBusy || !hasConnectedHost;
+	const showNoHostWarning = hostsSynced && !hasConnectedHost;
+
 	return <PageLayout nav={[{ name: "Gridworld" }]}>
 		<PageHeader
 			title="Gridworld"
@@ -115,7 +128,7 @@ function GridworldPage() {
 					<Button onClick={loadState} disabled={loading || actionBusy}>
 						Refresh
 					</Button>
-					<Button type="primary" onClick={createGridworld} loading={actionBusy}>
+					<Button type="primary" onClick={createGridworld} loading={actionBusy} disabled={createDisabled}>
 						Create new gridworld
 					</Button>
 					<Popconfirm
@@ -132,6 +145,15 @@ function GridworldPage() {
 				</Space>
 			}
 		/>
+		{showNoHostWarning && (
+			<Alert
+				type="warning"
+				showIcon
+				message="No connected hosts"
+				description="Connect a host before creating a gridworld so instances can be assigned."
+				style={{ marginBottom: 16 }}
+			/>
+		)}
 		{state?.mapExchangeError && (
 			<Alert
 				type="warning"
