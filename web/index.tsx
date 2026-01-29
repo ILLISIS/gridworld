@@ -8,13 +8,20 @@ import {
 	notifyErrorHandler,
 	useHosts,
 } from "@clusterio/web_ui";
-import { Alert, Button, Card, Empty, Popconfirm, Space, Spin, Typography } from "antd";
+import { Alert, Button, Popconfirm, Space, Spin } from "antd";
 
 import * as messages from "../messages";
+import { GridworldDataSource } from "./dataSources/GridworldDataSource";
 
 import "./style.css";
 
-const { Text } = Typography;
+type MinimapModule = {
+	CanvasMinimapPage: React.ComponentType<any>;
+	GetRawTileRequest: new (...args: any[]) => any;
+	GetRawRecipeTileRequest: new (...args: any[]) => any;
+	GetChartTagsRequest: new (...args: any[]) => any;
+	GetPlayerPathRequest: new (...args: any[]) => any;
+};
 
 function GridworldPage() {
 	const control = useContext(ControlContext);
@@ -22,6 +29,8 @@ function GridworldPage() {
 	const [state, setState] = useState<messages.GridworldStateResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [actionBusy, setActionBusy] = useState(false);
+	const [minimapModule, setMinimapModule] = useState<MinimapModule | null>(null);
+	const [minimapError, setMinimapError] = useState<string | null>(null);
 	const hasConnectedHost = useMemo(() => {
 		for (const host of hosts.values()) {
 			if (host.connected) {
@@ -46,6 +55,48 @@ function GridworldPage() {
 		loadState();
 	}, [loadState]);
 
+	useEffect(() => {
+		const minimapPlugin = control.plugins.get("minimap") as { container?: any } | undefined;
+		if (!minimapPlugin?.container) {
+			setMinimapModule(null);
+			setMinimapError("Minimap plugin is not loaded");
+			return;
+		}
+		minimapPlugin.container.get("./web")
+			.then((factory: () => MinimapModule) => {
+				setMinimapModule(factory());
+				setMinimapError(null);
+			})
+			.catch((err: Error) => {
+				setMinimapModule(null);
+				setMinimapError(err.message || "Failed to load minimap module");
+			});
+	}, [control]);
+
+	const minimapRequests = useMemo(() => {
+		if (!minimapModule) {
+			return null;
+		}
+		return {
+			GetRawTileRequest: minimapModule.GetRawTileRequest,
+			GetRawRecipeTileRequest: minimapModule.GetRawRecipeTileRequest,
+			GetChartTagsRequest: minimapModule.GetChartTagsRequest,
+			GetPlayerPathRequest: minimapModule.GetPlayerPathRequest,
+		};
+	}, [minimapModule]);
+
+	const dataSource = useMemo(() => {
+		if (!state || !minimapRequests) {
+			return null;
+		}
+		return new GridworldDataSource(
+			control,
+			state,
+			minimapRequests,
+			control.plugins.get("minimap") as any,
+		);
+	}, [control, state, minimapRequests]);
+
 	const createGridworld = async () => {
 		setActionBusy(true);
 		try {
@@ -68,57 +119,10 @@ function GridworldPage() {
 		}
 	};
 
-	const tiles = state?.tiles ?? [];
-	const bounds = useMemo(() => {
-		if (!tiles.length) {
-			return null;
-		}
-		let minX = tiles[0].x;
-		let maxX = tiles[0].x;
-		let minY = tiles[0].y;
-		let maxY = tiles[0].y;
-		for (const tile of tiles) {
-			minX = Math.min(minX, tile.x);
-			maxX = Math.max(maxX, tile.x);
-			minY = Math.min(minY, tile.y);
-			maxY = Math.max(maxY, tile.y);
-		}
-		return { minX, maxX, minY, maxY, width: maxX - minX + 1, height: maxY - minY + 1 };
-	}, [tiles]);
-
-	const tileMap = useMemo(() => {
-		const map = new Map<string, messages.GridworldTile>();
-		for (const tile of tiles) {
-			map.set(`${tile.x},${tile.y}`, tile);
-		}
-		return map;
-	}, [tiles]);
-
-	const gridCells = useMemo(() => {
-		if (!bounds) {
-			return [];
-		}
-		const cells = [];
-		for (let y = bounds.maxY; y >= bounds.minY; y -= 1) {
-			for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-				const tile = tileMap.get(`${x},${y}`);
-				cells.push(
-					<div
-						key={`${x},${y}`}
-						className={`gridworld-cell ${tile ? "tile" : "empty"}`}
-						title={tile ? `Tile ${x},${y} (instance ${tile.instanceId})` : `Empty ${x},${y}`}
-					>
-						<div className="gridworld-cell-title">{x}, {y}</div>
-						{tile && <div className="gridworld-cell-sub">Instance {tile.instanceId}</div>}
-					</div>,
-				);
-			}
-		}
-		return cells;
-	}, [bounds, tileMap]);
-
 	const createDisabled = loading || actionBusy || !hasConnectedHost;
 	const showNoHostWarning = hostsSynced && !hasConnectedHost;
+	const tileSizeInvalid = state ? state.tileSize % 256 !== 0 : false;
+	const MinimapCanvas = minimapModule?.CanvasMinimapPage;
 
 	return <PageLayout nav={[{ name: "Gridworld" }]}>
 		<PageHeader
@@ -163,26 +167,36 @@ function GridworldPage() {
 				style={{ marginBottom: 16 }}
 			/>
 		)}
-		<Card className="gridworld-card">
-			{loading && !state && <div className="gridworld-loading"><Spin size="large" /></div>}
-			{!loading && !tiles.length && <Empty description="No tiles yet" />}
-			{!!tiles.length && bounds && (
-				<>
-					<div className="gridworld-summary">
-						<Text>Tiles: {tiles.length}</Text>
-						<Text>Bounds: {bounds.minX},{bounds.minY} to {bounds.maxX},{bounds.maxY}</Text>
-						<Text>Initial tile: {state?.initialTile.x}, {state?.initialTile.y}</Text>
-						<Text>Tile size: {state?.tileSize}</Text>
-					</div>
-					<div
-						className="gridworld-grid"
-						style={{ gridTemplateColumns: `repeat(${bounds.width}, var(--gridworld-cell-size))` }}
-					>
-						{gridCells}
-					</div>
-				</>
-			)}
-		</Card>
+		{minimapError && (
+			<Alert
+				type="error"
+				showIcon
+				message="Minimap module unavailable"
+				description={minimapError}
+				style={{ marginBottom: 16 }}
+			/>
+		)}
+		{tileSizeInvalid && state && (
+			<Alert
+				type="error"
+				showIcon
+				message="Unsupported grid tile size"
+				description={`Gridworld tile size (${state.tileSize}) must be a multiple of 256 to render the unified map.`}
+				style={{ marginBottom: 16 }}
+			/>
+		)}
+		{loading && !state && <div style={{ padding: 24 }}><Spin size="large" /></div>}
+		{state && !MinimapCanvas && !minimapError && (
+			<div style={{ padding: 24 }}><Spin size="large" /></div>
+		)}
+		{state && dataSource && MinimapCanvas && !tileSizeInvalid && (
+			<MinimapCanvas
+				dataSource={dataSource}
+				title="Gridworld Map"
+				showInstanceSelector={false}
+				showManageActions={false}
+			/>
+		)}
 	</PageLayout>;
 }
 
