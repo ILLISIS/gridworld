@@ -28,7 +28,7 @@ type EdgeTargetSpec = {
 };
 
 type UniversalEdgesController = {
-	edgeDatastore?: Map<string, { id: string; isDeleted: boolean }>;
+	edgeDatastore?: Map<string, any>;
 	handleSetEdgeConfigRequest?: (request: { edge: any }) => Promise<void> | void;
 };
 
@@ -138,6 +138,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.tiles = await loadTiles(this.controller.config, this.logger);
 		this.rebuildTileIndex();
 		this.loadMapExchangeString();
+		await this.syncTileInstanceConfigs();
 
 		if (this.tiles.size === 0) {
 			const x = this.controller.config.get("gridworld.initial_tile_x");
@@ -163,12 +164,24 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		if (!tile) {
 			return;
 		}
-		await this.ensureNeighbors(tile);
+		try {
+			await this.ensureNeighbors(tile);
+			await this.configureSpawnPosition(tile);
+		} catch (err: any) {
+			this.logger.warn(
+				`Failed handling player join for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+			);
+		}
 	}
 
 	async onControllerConfigFieldChanged(field: string) {
 		if (field === "gridworld.map_exchange_string") {
 			this.loadMapExchangeString();
+		}
+		if (field === "gridworld.tile_size" || field === "gridworld.surface_name") {
+			await this.syncTileInstanceConfigs();
+			await this.ensureEdgesForKnownTiles();
+			await this.configureSpawnPositionsForKnownTiles();
 		}
 	}
 
@@ -183,6 +196,50 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			}
 			this.tilesByInstance.set(tile.instanceId, tile);
 		}
+	}
+
+	private async syncTileInstanceConfigs() {
+		const tileSize = this.controller.config.get("gridworld.tile_size");
+		const surfaceName = this.controller.config.get("gridworld.surface_name");
+		for (const tile of this.tiles.values()) {
+			const instance = this.controller.instances.get(tile.instanceId);
+			if (!instance) {
+				continue;
+			}
+			let updated = false;
+			if (instance.config.get("gridworld.tile_x") !== tile.x) {
+				instance.config.set("gridworld.tile_x", tile.x, "controller");
+				updated = true;
+			}
+			if (instance.config.get("gridworld.tile_y") !== tile.y) {
+				instance.config.set("gridworld.tile_y", tile.y, "controller");
+				updated = true;
+			}
+			if (instance.config.get("gridworld.tile_size") !== tileSize) {
+				instance.config.set("gridworld.tile_size", tileSize, "controller");
+				updated = true;
+			}
+			if (instance.config.get("gridworld.surface_name") !== surfaceName) {
+				instance.config.set("gridworld.surface_name", surfaceName, "controller");
+				updated = true;
+			}
+			if (updated) {
+				try {
+					await this.controller.instanceConfigUpdated(instance);
+				} catch (err: any) {
+					this.logger.warn(
+						`Failed updating config for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+					);
+				}
+			}
+		}
+	}
+
+	private setInstanceConfigForTile(instanceConfig: lib.InstanceConfig, x: number, y: number) {
+		instanceConfig.set("gridworld.tile_x", x, "controller");
+		instanceConfig.set("gridworld.tile_y", y, "controller");
+		instanceConfig.set("gridworld.tile_size", this.controller.config.get("gridworld.tile_size"), "controller");
+		instanceConfig.set("gridworld.surface_name", this.controller.config.get("gridworld.surface_name"), "controller");
 	}
 
 	private loadMapExchangeString() {
@@ -239,6 +296,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		const instanceConfig = new lib.InstanceConfig("controller");
 		instanceConfig.set("instance.name", instanceName, "controller");
 		instanceConfig.set("instance.auto_start", false, "controller");
+		this.setInstanceConfigForTile(instanceConfig, x, y);
 
 		await this.controller.instanceCreate(instanceConfig);
 		const instanceId = instanceConfig.get("instance.id");
@@ -366,16 +424,13 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 		const edgeId = edgeKey(tile, neighbor);
 		const existingEdge = ue.edgeDatastore?.get(edgeId);
-		if (existingEdge && !existingEdge.isDeleted) {
-			return;
-		}
 
 		const [sourceTile, targetTile] = this.orderTiles(tile, neighbor);
 		const sourceSpec = this.buildEdgeTargetSpec(sourceTile, targetTile);
 		const targetSpec = this.buildEdgeTargetSpec(targetTile, sourceTile);
 		const tileSize = this.controller.config.get("gridworld.tile_size");
 
-		const edge = {
+		const desiredEdge = {
 			id: edgeId,
 			updatedAtMs: Date.now(),
 			isDeleted: false,
@@ -383,10 +438,66 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			target: targetSpec,
 			length: tileSize,
 			active: true,
-			link_destinations: {},
+			link_destinations: existingEdge?.link_destinations ?? {},
 		};
 
-		await ue.handleSetEdgeConfigRequest({ edge });
+		if (existingEdge && !existingEdge.isDeleted) {
+			if (!this.edgeConfigNeedsUpdate(existingEdge, desiredEdge)) {
+				return;
+			}
+			await ue.handleSetEdgeConfigRequest({
+				edge: {
+					...existingEdge,
+					...desiredEdge,
+				},
+			});
+			return;
+		}
+
+		await ue.handleSetEdgeConfigRequest({ edge: desiredEdge });
+	}
+
+	private edgeTargetSpecEquals(a: any, b: any) {
+		if (!a || !b) {
+			return false;
+		}
+		if (a.instanceId !== b.instanceId) {
+			return false;
+		}
+		if (a.surface !== b.surface) {
+			return false;
+		}
+		if (a.direction !== b.direction) {
+			return false;
+		}
+		if (Boolean(a.ready) !== Boolean(b.ready)) {
+			return false;
+		}
+		const aOrigin = Array.isArray(a.origin) ? a.origin : null;
+		const bOrigin = Array.isArray(b.origin) ? b.origin : null;
+		if (!aOrigin || !bOrigin || aOrigin.length < 2 || bOrigin.length < 2) {
+			return false;
+		}
+		return aOrigin[0] === bOrigin[0] && aOrigin[1] === bOrigin[1];
+	}
+
+	private edgeConfigNeedsUpdate(existingEdge: any, desiredEdge: any) {
+		if (!existingEdge || !desiredEdge) {
+			return true;
+		}
+		if (Boolean(existingEdge.active) !== Boolean(desiredEdge.active)) {
+			return true;
+		}
+		if (existingEdge.length !== desiredEdge.length) {
+			return true;
+		}
+		if (!this.edgeTargetSpecEquals(existingEdge.source, desiredEdge.source)) {
+			return true;
+		}
+		if (!this.edgeTargetSpecEquals(existingEdge.target, desiredEdge.target)) {
+			return true;
+		}
+		return false;
 	}
 
 	private orderTiles(a: TileRecord, b: TileRecord): [TileRecord, TileRecord] {
@@ -529,10 +640,26 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				new lib.InstanceStartRequest(tile.saveName),
 			);
 			this.logger.info(`Started tile ${tile.x},${tile.y} (${reason})`);
-			await this.configureFreeplayIntro(tile);
 		} catch (err: any) {
 			this.logger.error(
 				`Failed starting instance ${tile.instanceId} for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+			);
+			return;
+		}
+
+		try {
+			await this.configureFreeplayIntro(tile);
+		} catch (err: any) {
+			this.logger.warn(
+				`Failed configuring freeplay intro for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+			);
+		}
+
+		try {
+			await this.configureSpawnPosition(tile);
+		} catch (err: any) {
+			this.logger.warn(
+				`Failed configuring spawn for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
 			);
 		}
 	}
@@ -548,6 +675,35 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				{ instanceId: tile.instanceId },
 				new lib.InstanceSendRconRequest(command),
 			);
+		}
+	}
+
+	private async configureSpawnPosition(tile: TileRecord) {
+		const tileSize = this.controller.config.get("gridworld.tile_size");
+		const surface = this.controller.config.get("gridworld.surface_name");
+		const escapedSurface = lib.escapeString(surface);
+		const x = tile.x * tileSize;
+		const y = tile.y * tileSize;
+		const command = `/c local force=game.forces.player; local surface=game.surfaces["${escapedSurface}"]; if force and surface then force.set_spawn_position({x=${x}, y=${y}}, surface) end`;
+		await this.controller.sendTo(
+			{ instanceId: tile.instanceId },
+			new lib.InstanceSendRconRequest(command),
+		);
+	}
+
+	private async configureSpawnPositionsForKnownTiles() {
+		for (const tile of this.tiles.values()) {
+			const instance = this.controller.instances.get(tile.instanceId);
+			if (!instance || instance.status !== "running") {
+				continue;
+			}
+			try {
+				await this.configureSpawnPosition(tile);
+			} catch (err: any) {
+				this.logger.warn(
+					`Failed configuring spawn for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+				);
+			}
 		}
 	}
 

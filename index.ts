@@ -24,6 +24,12 @@ declare module "@clusterio/lib" {
 		"gridworld.auto_start_instances": boolean;
 		"gridworld.save_name_prefix": string;
 	}
+	export interface InstanceConfigFields {
+		"gridworld.tile_x": number;
+		"gridworld.tile_y": number;
+		"gridworld.tile_size": number;
+		"gridworld.surface_name": string;
+	}
 }
 
 export const plugin: lib.PluginDeclaration = {
@@ -74,6 +80,34 @@ export const plugin: lib.PluginDeclaration = {
 			description: "Prefix to use for tile save names.",
 			type: "string",
 			initialValue: "gridworld",
+		},
+	},
+
+	instanceEntrypoint: "./dist/node/instance",
+	instanceConfigFields: {
+		"gridworld.tile_x": {
+			title: "Tile X",
+			description: "Tile X coordinate (managed by gridworld).",
+			type: "number",
+			initialValue: 0,
+		},
+		"gridworld.tile_y": {
+			title: "Tile Y",
+			description: "Tile Y coordinate (managed by gridworld).",
+			type: "number",
+			initialValue: 0,
+		},
+		"gridworld.tile_size": {
+			title: "Tile Size",
+			description: "Tile size in map units (managed by gridworld).",
+			type: "number",
+			initialValue: 1024,
+		},
+		"gridworld.surface_name": {
+			title: "Surface Name",
+			description: "Surface name to use for gridworld boundaries (managed by gridworld).",
+			type: "string",
+			initialValue: "nauvis",
 		},
 	},
 

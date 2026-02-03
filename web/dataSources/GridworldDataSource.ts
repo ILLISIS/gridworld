@@ -74,6 +74,11 @@ export interface MinimapActiveView {
 	activeInstanceIds: number[];
 }
 
+interface GridworldDataSourceOptions {
+	onViewBoundsChange?: (bounds: MinimapViewBounds) => void;
+	onSurfaceForceChange?: (surface: string, force: string) => void;
+}
+
 export interface MinimapDataSource {
 	setSurfaceForce(surface: string, force: string): void;
 	setActiveView(bounds: MinimapViewBounds): MinimapActiveView;
@@ -131,6 +136,9 @@ export class GridworldDataSource implements MinimapDataSource {
 	private activeInstanceIds: number[] = [];
 	private chartTagCache = new Map<number, ChartTagDataWithInstance[]>();
 	private playerPathCache = new Map<number, Uint8Array>();
+	private onViewBoundsChange?: (bounds: MinimapViewBounds) => void;
+	private onSurfaceForceChange?: (surface: string, force: string) => void;
+	private lastViewBounds: MinimapViewBounds | null = null;
 	public validationError: string | null = null;
 
 	constructor(
@@ -138,10 +146,13 @@ export class GridworldDataSource implements MinimapDataSource {
 		state: GridworldStateResponse,
 		requests: MinimapRequestConstructors,
 		plugin?: MinimapWebPlugin | null,
+		options?: GridworldDataSourceOptions,
 	) {
 		this.control = control;
 		this.requests = requests;
 		this.plugin = plugin ?? control.plugins.get("minimap") as MinimapWebPlugin | undefined ?? null;
+		this.onViewBoundsChange = options?.onViewBoundsChange;
+		this.onSurfaceForceChange = options?.onSurfaceForceChange;
 		this.updateState(state);
 	}
 
@@ -158,6 +169,7 @@ export class GridworldDataSource implements MinimapDataSource {
 		this.activeInstanceIds = [];
 		this.chartTagCache.clear();
 		this.playerPathCache.clear();
+		this.lastViewBounds = null;
 		this.updateFilters();
 	}
 
@@ -166,10 +178,12 @@ export class GridworldDataSource implements MinimapDataSource {
 		this.force = force;
 		this.chartTagCache.clear();
 		this.playerPathCache.clear();
+		this.onSurfaceForceChange?.(surface, force);
 		this.updateFilters();
 	}
 
 	setActiveView(bounds: MinimapViewBounds): MinimapActiveView {
+		this.updateViewBounds(bounds);
 		if (!this.isReady()) {
 			return { changed: false, activeInstanceIds: [] };
 		}
@@ -390,5 +404,19 @@ export class GridworldDataSource implements MinimapDataSource {
 		}
 		const filters = this.activeInstanceIds.map(instanceId => ({ instanceId, surface: this.surface }));
 		this.plugin.setInstanceSurfaceFilters?.(filters.length > 0 ? filters : null);
+	}
+
+	private updateViewBounds(bounds: MinimapViewBounds) {
+		if (
+			this.lastViewBounds
+			&& this.lastViewBounds.worldLeft === bounds.worldLeft
+			&& this.lastViewBounds.worldTop === bounds.worldTop
+			&& this.lastViewBounds.worldRight === bounds.worldRight
+			&& this.lastViewBounds.worldBottom === bounds.worldBottom
+		) {
+			return;
+		}
+		this.lastViewBounds = { ...bounds };
+		this.onViewBoundsChange?.(this.lastViewBounds);
 	}
 }
