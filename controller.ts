@@ -80,25 +80,34 @@ async function loadTiles(
 		if (!content.trim()) {
 			return new Map();
 		}
-		const parsed = JSON.parse(content);
+		const parsed = JSON.parse(content) as TileRecord[];
+
 		const map = new Map<string, TileRecord>();
-		if (Array.isArray(parsed)) {
-			for (const entry of parsed) {
-				if (
-					entry
-					&& typeof entry.x === "number"
-					&& typeof entry.y === "number"
-					&& typeof entry.instanceId === "number"
-				) {
-					const saveName = typeof entry.saveName === "string"
-						? entry.saveName
-						: `${config.get("gridworld.save_name_prefix")}_${entry.x}_${entry.y}.zip`;
-					map.set(tileKey(entry.x, entry.y), {
-						...entry,
-						saveName,
-					} as TileRecord);
-				}
+		const saveNamePrefix = config.get("gridworld.save_name_prefix");
+		for (const entry of parsed) {
+			if (!entry || typeof entry !== "object") {
+				continue;
 			}
+			const e = entry as any;
+			if (!Number.isFinite(e.x) || !Number.isFinite(e.y) || !Number.isFinite(e.instanceId)) {
+				continue;
+			}
+			const x = e.x as number;
+			const y = e.y as number;
+			const instanceId = e.instanceId as number;
+			const saveName = typeof e.saveName === "string"
+				? e.saveName
+				: `${saveNamePrefix}_${x}_${y}.zip`;
+			const createdAtMs = Number.isFinite(e.createdAtMs)
+				? e.createdAtMs as number
+				: Date.now();
+			map.set(tileKey(x, y), {
+				x,
+				y,
+				instanceId,
+				saveName,
+				createdAtMs,
+			});
 		}
 		return map;
 	} catch (err: any) {
@@ -125,6 +134,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	private tilesByInstance = new Map<number, TileRecord>();
 	private pendingTiles = new Map<string, Promise<TileRecord>>();
 	private pendingStarts = new Map<number, Promise<void>>();
+	private tileSavePromise: Promise<void> | null = null;
 	private hostAssignIndex = 0;
 	private storageDirty = false;
 	private parsedMapSettings: ParsedMapSettings | null = null;
@@ -139,20 +149,13 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.rebuildTileIndex();
 		this.loadMapExchangeString();
 		await this.syncTileInstanceConfigs();
-
-		if (this.tiles.size === 0) {
-			const x = this.controller.config.get("gridworld.initial_tile_x");
-			const y = this.controller.config.get("gridworld.initial_tile_y");
-			await this.ensureTile(x, y, "initial");
-		}
-
 		await this.ensureEdgesForKnownTiles();
 	}
 
 	async onSaveData() {
 		if (this.storageDirty) {
-			this.storageDirty = false;
 			await saveTiles(this.controller.config, this.tiles, this.logger);
+			this.storageDirty = false;
 		}
 	}
 
@@ -291,6 +294,17 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	}
 
 	private async createTile(x: number, y: number, reason: string): Promise<TileRecord> {
+		const mapSettings = this.buildMapSettingsForTile(x, y);
+		if (!mapSettings) {
+			throw new lib.ResponseError(
+				`Cannot create tile ${x},${y}: ${this.mapExchangeError ?? "map exchange string is not configured."}`,
+			);
+		}
+		const hostId = this.getHostIdForTile();
+		if (hostId === undefined) {
+			throw new lib.ResponseError(`Cannot create tile ${x},${y}: no hosts connected.`);
+		}
+
 		const instanceName = `gridworld_${x}_${y}`;
 		const saveName = `${this.controller.config.get("gridworld.save_name_prefix")}_${x}_${y}.zip`;
 		const instanceConfig = new lib.InstanceConfig("controller");
@@ -307,14 +321,29 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			saveName,
 			createdAtMs: Date.now(),
 		};
+
+		try {
+			const assigned = await this.assignAndSetupInstance(tile, hostId);
+			if (!assigned) {
+				throw new lib.ResponseError(
+					`Failed assigning instance ${instanceId} for tile ${x},${y}`,
+				);
+			}
+
+			await this.ensureInstanceStarted(tile, reason, mapSettings);
+			await this.ensureEdgesForTile(tile);
+		} catch (err: any) {
+			this.logger.error(
+				`Tile creation failed for ${x},${y} (instance ${instanceId}): ${err?.message ?? err}`,
+			);
+			await this.cleanupFailedTileCreation(tile);
+			throw err;
+		}
+
 		this.tiles.set(tileKey(x, y), tile);
 		this.tilesByInstance.set(instanceId, tile);
 		this.storageDirty = true;
 		this.logger.info(`Created tile ${x},${y} for instance ${instanceId} (${reason})`);
-
-		await this.assignAndSetupInstance(tile);
-		await this.ensureInstanceStarted(tile, reason);
-		await this.ensureEdgesForTile(tile);
 		return tile;
 	}
 
@@ -330,19 +359,18 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		return hostId;
 	}
 
-	private async assignAndSetupInstance(tile: TileRecord) {
-		const hostId = this.getHostIdForTile();
-		if (hostId === undefined) {
-			return;
+	private async assignAndSetupInstance(tile: TileRecord, hostId?: number): Promise<boolean> {
+		const resolvedHostId = hostId ?? this.getHostIdForTile();
+		if (resolvedHostId === undefined) {
+			return false;
 		}
 		try {
-			await this.controller.instanceAssign(tile.instanceId, hostId);
+			await this.controller.instanceAssign(tile.instanceId, resolvedHostId);
+			return true;
 		} catch (err: any) {
 			this.logger.error(`Failed to assign instance ${tile.instanceId}: ${err?.message ?? err}`);
-			return;
+			return false;
 		}
-
-		return;
 	}
 
 	private buildMapSettingsForTile(x: number, y: number): ParsedMapSettings | null {
@@ -576,21 +604,21 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 	}
 
-	private async ensureInstanceStarted(tile: TileRecord, reason: string) {
+	private async ensureInstanceStarted(tile: TileRecord, reason: string, mapSettings?: ParsedMapSettings) {
 		const pending = this.pendingStarts.get(tile.instanceId);
 		if (pending) {
 			await pending;
 			return;
 		}
 
-		const startPromise = this.startInstanceIfNeeded(tile, reason).finally(() => {
+		const startPromise = this.startInstanceIfNeeded(tile, reason, mapSettings).finally(() => {
 			this.pendingStarts.delete(tile.instanceId);
 		});
 		this.pendingStarts.set(tile.instanceId, startPromise);
 		await startPromise;
 	}
 
-	private async startInstanceIfNeeded(tile: TileRecord, reason: string) {
+	private async startInstanceIfNeeded(tile: TileRecord, reason: string, mapSettingsOverride?: ParsedMapSettings) {
 		const instance = this.controller.instances.get(tile.instanceId);
 		if (!instance) {
 			this.logger.warn(`Missing instance ${tile.instanceId} for tile ${tile.x},${tile.y}`);
@@ -602,10 +630,17 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 
 		if (instance.config.get("instance.assigned_host") === null) {
-			await this.assignAndSetupInstance(tile);
+			const assigned = await this.assignAndSetupInstance(tile);
+			const updated = this.controller.instances.get(tile.instanceId);
+			if (!assigned || updated?.config.get("instance.assigned_host") === null) {
+				this.logger.warn(
+					`Cannot start tile ${tile.x},${tile.y}: instance ${tile.instanceId} is not assigned to a host.`,
+				);
+				return;
+			}
 		}
 
-		const mapSettings = this.buildMapSettingsForTile(tile.x, tile.y);
+		const mapSettings = mapSettingsOverride ?? this.buildMapSettingsForTile(tile.x, tile.y);
 		if (!mapSettings) {
 			this.logger.error(`Skipping save creation for tile ${tile.x},${tile.y}: ${this.mapExchangeError}`);
 			return;
@@ -663,6 +698,33 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			);
 		}
 	}
+
+	private async cleanupFailedTileCreation(tile: TileRecord) {
+		try {
+			const edgeCleanupTiles: TileRecord[] = [tile];
+			for (const delta of NEIGHBOR_DELTAS) {
+				const neighbor = this.tiles.get(tileKey(tile.x + delta.dx, tile.y + delta.dy));
+				if (neighbor) {
+					edgeCleanupTiles.push(neighbor);
+				}
+			}
+			await this.removeEdgesForTiles(edgeCleanupTiles);
+		} catch (err: any) {
+			this.logger.warn(
+				`Failed removing edges for aborted tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+			);
+		}
+
+		await this.stopInstanceBeforeDelete(tile.instanceId, `aborted tile ${tile.x},${tile.y}`);
+		try {
+			await this.controller.instanceDelete(tile.instanceId);
+		} catch (err: any) {
+			this.logger.error(
+				`Failed deleting aborted tile instance ${tile.instanceId} (${tile.x},${tile.y}): ${err?.message ?? err}`,
+			);
+		}
+	}
+
 
 	private async configureFreeplayIntro(tile: TileRecord) {
 		const commands = [

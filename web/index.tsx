@@ -238,6 +238,12 @@ function GridworldPage() {
 	const createGridworld = async () => {
 		setActionBusy(true);
 		try {
+			const current = await control.send(new messages.GridworldStateRequest());
+			if (current.mapExchangeError) {
+				setState(current);
+				notifyErrorHandler("Cannot create gridworld")(new Error(current.mapExchangeError));
+				return;
+			}
 			setState(await control.send(new messages.GridworldCreateRequest()));
 		} catch (err) {
 			notifyErrorHandler("Error creating gridworld")(err as Error);
@@ -257,9 +263,9 @@ function GridworldPage() {
 		}
 	};
 
-	const createDisabled = loading || actionBusy || !hasConnectedHost;
+	const createDisabled = loading || actionBusy || !hasConnectedHost || typeof state?.mapExchangeError === "string";
 	const showNoHostWarning = hostsSynced && !hasConnectedHost;
-	const tileSizeInvalid = state ? state.tileSize % 256 !== 0 : false;
+	const tileSizeInvalid = state ? !(state.tileSize > 0 && state.tileSize % 256 === 0) : false;
 	const MinimapCanvas = minimapModule?.CanvasMinimapPage;
 
 	return <PageLayout nav={[{ name: "Gridworld" }]}>
