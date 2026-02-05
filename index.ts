@@ -112,6 +112,7 @@ export const plugin: lib.PluginDeclaration = {
 	},
 
 	messages: [
+		messages.GridworldStateUpdate,
 		messages.GridworldStateRequest,
 		messages.GridworldCreateRequest,
 		messages.GridworldDeleteRequest,

@@ -8,6 +8,7 @@ import {
 	notifyErrorHandler,
 	useHosts,
 } from "@clusterio/web_ui";
+import * as lib from "@clusterio/lib";
 import { Alert, Button, Popconfirm, Space, Spin } from "antd";
 
 import * as messages from "../messages";
@@ -53,9 +54,10 @@ const FULL_CIRCLE = Math.PI * 2;
 
 function GridworldPage() {
 	const control = useContext(ControlContext);
+	const plugin = control.plugins.get("gridworld") as WebPlugin;
 	const [hosts, hostsSynced] = useHosts();
 	const [state, setState] = useState<messages.GridworldStateResponse | null>(null);
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(false);
 	const [actionBusy, setActionBusy] = useState(false);
 	const [minimapModule, setMinimapModule] = useState<MinimapModule | null>(null);
 	const [minimapError, setMinimapError] = useState<string | null>(null);
@@ -70,6 +72,15 @@ function GridworldPage() {
 		return false;
 	}, [hosts]);
 
+	const [gridworldStateSnapshot] = plugin.useGridworldState();
+	const subscribedState = gridworldStateSnapshot.get("state") ?? null;
+	useEffect(() => {
+		if (!subscribedState) {
+			return;
+		}
+		setState(subscribedState);
+	}, [subscribedState]);
+
 	const loadState = useCallback(async () => {
 		setLoading(true);
 		try {
@@ -80,10 +91,6 @@ function GridworldPage() {
 			setLoading(false);
 		}
 	}, [control]);
-
-	useEffect(() => {
-		loadState();
-	}, [loadState]);
 
 	useEffect(() => {
 		const minimapPlugin = control.plugins.get("minimap") as { container?: any } | undefined;
@@ -329,7 +336,7 @@ function GridworldPage() {
 				style={{ marginBottom: 16 }}
 			/>
 		)}
-		{loading && !state && <div style={{ padding: 24 }}><Spin size="large" /></div>}
+		{!state && <div style={{ padding: 24 }}><Spin size="large" /></div>}
 		{state && !MinimapCanvas && !minimapError && (
 			<div style={{ padding: 24 }}><Spin size="large" /></div>
 		)}
@@ -357,6 +364,8 @@ function GridworldPage() {
 }
 
 export class WebPlugin extends BaseWebPlugin {
+	subscribableGridworldState = new lib.EventSubscriber(messages.GridworldStateUpdate, this.control);
+
 	async init() {
 		this.pages = [
 			{
@@ -366,5 +375,13 @@ export class WebPlugin extends BaseWebPlugin {
 				content: <GridworldPage />,
 			},
 		];
+	}
+
+	useGridworldState() {
+		const subscribe = useCallback(
+			(callback: () => void) => this.subscribableGridworldState.subscribe(callback),
+			[],
+		);
+		return useSyncExternalStore(subscribe, () => this.subscribableGridworldState.getSnapshot());
 	}
 }

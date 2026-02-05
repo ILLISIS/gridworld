@@ -1,5 +1,5 @@
 import { plainJson } from "@clusterio/lib";
-import { Type, Static } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 
 const GridworldTile = Type.Object({
 	x: Type.Number(),
@@ -22,6 +22,36 @@ export const GridworldStateResponse = Type.Object({
 });
 
 export type GridworldStateResponse = Static<typeof GridworldStateResponse>;
+
+export const GridworldStateValue = Type.Intersect([
+	Type.Object({
+		id: Type.Literal("state"),
+		updatedAtMs: Type.Number(),
+		isDeleted: Type.Boolean(),
+	}),
+	GridworldStateResponse,
+]);
+
+export type GridworldStateValue = Static<typeof GridworldStateValue>;
+
+export class GridworldStateUpdate {
+	declare ["constructor"]: typeof GridworldStateUpdate;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "control" as const;
+	static plugin = "gridworld" as const;
+	static permission = "gridworld.view" as const;
+
+	constructor(public updates: GridworldStateValue[]) { }
+
+	static jsonSchema = Type.Object({
+		updates: Type.Array(GridworldStateValue),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.updates);
+	}
+}
 
 export class GridworldStateRequest {
 	declare ["constructor"]: typeof GridworldStateRequest;

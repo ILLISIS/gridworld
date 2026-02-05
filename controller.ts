@@ -134,16 +134,18 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	private tilesByInstance = new Map<number, TileRecord>();
 	private pendingTiles = new Map<string, Promise<TileRecord>>();
 	private pendingStarts = new Map<number, Promise<void>>();
-	private tileSavePromise: Promise<void> | null = null;
 	private hostAssignIndex = 0;
 	private storageDirty = false;
 	private parsedMapSettings: ParsedMapSettings | null = null;
 	private mapExchangeError: string | null = null;
+	private stateUpdatedAtMs = Date.now();
+	private stateBroadcastQueued = false;
 
 	async init() {
 		this.controller.handle(messages.GridworldStateRequest, this.handleGridworldStateRequest.bind(this));
 		this.controller.handle(messages.GridworldCreateRequest, this.handleGridworldCreateRequest.bind(this));
 		this.controller.handle(messages.GridworldDeleteRequest, this.handleGridworldDeleteRequest.bind(this));
+		this.controller.subscriptions.handle(messages.GridworldStateUpdate, this.handleGridworldStateSubscription.bind(this));
 
 		this.tiles = await loadTiles(this.controller.config, this.logger);
 		this.rebuildTileIndex();
@@ -180,11 +182,18 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	async onControllerConfigFieldChanged(field: string) {
 		if (field === "gridworld.map_exchange_string") {
 			this.loadMapExchangeString();
+			this.markStateDirty();
 		}
 		if (field === "gridworld.tile_size" || field === "gridworld.surface_name") {
 			await this.syncTileInstanceConfigs();
 			await this.ensureEdgesForKnownTiles();
 			await this.configureSpawnPositionsForKnownTiles();
+			if (field === "gridworld.tile_size") {
+				this.markStateDirty();
+			}
+		}
+		if (field === "gridworld.initial_tile_x" || field === "gridworld.initial_tile_y") {
+			this.markStateDirty();
 		}
 	}
 
@@ -343,6 +352,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.tiles.set(tileKey(x, y), tile);
 		this.tilesByInstance.set(instanceId, tile);
 		this.storageDirty = true;
+		this.markStateDirty();
 		this.logger.info(`Created tile ${x},${y} for instance ${instanceId} (${reason})`);
 		return tile;
 	}
@@ -465,7 +475,6 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			source: sourceSpec,
 			target: targetSpec,
 			length: tileSize,
-			active: true,
 			link_destinations: existingEdge?.link_destinations ?? {},
 		};
 
@@ -482,7 +491,13 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			return;
 		}
 
-		await ue.handleSetEdgeConfigRequest({ edge: desiredEdge });
+		await ue.handleSetEdgeConfigRequest({
+			edge: {
+				...existingEdge,
+				...desiredEdge,
+				active: existingEdge?.active ?? true,
+			},
+		});
 	}
 
 	private edgeTargetSpecEquals(a: any, b: any) {
@@ -511,9 +526,6 @@ export class ControllerPlugin extends BaseControllerPlugin {
 
 	private edgeConfigNeedsUpdate(existingEdge: any, desiredEdge: any) {
 		if (!existingEdge || !desiredEdge) {
-			return true;
-		}
-		if (Boolean(existingEdge.active) !== Boolean(desiredEdge.active)) {
 			return true;
 		}
 		if (existingEdge.length !== desiredEdge.length) {
@@ -803,6 +815,39 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 	}
 
+	private getStateValue(): messages.GridworldStateValue {
+		return {
+			id: "state",
+			updatedAtMs: this.stateUpdatedAtMs,
+			isDeleted: false,
+			...this.getState(),
+		};
+	}
+
+	private markStateDirty() {
+		const now = Date.now();
+		this.stateUpdatedAtMs = now > this.stateUpdatedAtMs ? now : this.stateUpdatedAtMs + 1;
+		if (this.stateBroadcastQueued) {
+			return;
+		}
+		this.stateBroadcastQueued = true;
+		setImmediate(() => {
+			this.stateBroadcastQueued = false;
+			this.controller.subscriptions.broadcast(new messages.GridworldStateUpdate([
+				this.getStateValue(),
+			]));
+		});
+	}
+
+	private async handleGridworldStateSubscription(request: lib.SubscriptionRequest) {
+		if (this.stateUpdatedAtMs <= request.lastRequestTimeMs) {
+			return null;
+		}
+		return new messages.GridworldStateUpdate([
+			this.getStateValue(),
+		]);
+	}
+
 	private getState(): messages.GridworldStateResponse {
 		const tiles = [...this.tiles.values()].map(tile => ({
 			x: tile.x,
@@ -888,6 +933,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			const y = this.controller.config.get("gridworld.initial_tile_y");
 			await this.ensureTile(x, y, "reset");
 		}
+		this.markStateDirty();
 	}
 
 	private async removeEdgesForTiles(tiles: TileRecord[]) {
