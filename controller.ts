@@ -904,7 +904,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				continue;
 			}
 			const name = instance.config.get("instance.name");
-			if (!name.startsWith(namePrefix)) {
+			if (!name.startsWith(namePrefix) && name !== "pathworld") {
 				continue;
 			}
 			await this.stopInstanceBeforeDelete(instance.id, name);
@@ -924,9 +924,77 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		if (createInitial) {
 			const x = this.controller.config.get("gridworld.initial_tile_x");
 			const y = this.controller.config.get("gridworld.initial_tile_y");
+			await this.createPathworldInstance();
 			await this.ensureTile(x, y, "reset");
 		}
 		this.markStateDirty();
+	}
+
+	private async createPathworldInstance() {
+		const initialX = this.controller.config.get("gridworld.initial_tile_x");
+		const initialY = this.controller.config.get("gridworld.initial_tile_y");
+		const mapSettings = this.buildMapSettingsForTile(initialX, initialY);
+		if (!mapSettings) {
+			this.logger.error(`Cannot create pathworld instance: ${this.mapExchangeError ?? "map exchange string is not configured."}`);
+			return;
+		}
+		const hostId = this.getHostIdForTile();
+		if (hostId === undefined) {
+			this.logger.error("Cannot create pathworld instance: no hosts connected.");
+			return;
+		}
+
+		const instanceName = "pathworld";
+		const saveName = "pathworld.zip";
+
+		const instanceConfig = new lib.InstanceConfig("controller");
+		instanceConfig.set("instance.name", instanceName, "controller");
+		instanceConfig.set("instance.auto_start", true, "controller");
+		// instanceConfig.set("factorio.settings", { public: false, lan: false }, "controller");
+
+		await this.controller.instanceCreate(instanceConfig);
+		const instanceId = instanceConfig.get("instance.id");
+
+		try {
+			await this.controller.instanceAssign(instanceId, hostId);
+		} catch (err: any) {
+			this.logger.error(`Failed to assign pathworld instance ${instanceId}: ${err?.message ?? err}`);
+			try {
+				await this.controller.instanceDelete(instanceId);
+			} catch { /* ignore */ }
+			return;
+		}
+
+		const hasSave = [...this.controller.saves.values()].some(save =>
+			save.instanceId === instanceId && save.name === saveName && !save.isDeleted
+		);
+
+		if (!hasSave) {
+			try {
+				await this.controller.sendTo(
+					{ instanceId },
+					new lib.InstanceCreateSaveRequest(
+						saveName,
+						mapSettings.seed,
+						mapSettings.mapGenSettings,
+						mapSettings.mapSettings,
+					),
+				);
+			} catch (err: any) {
+				this.logger.error(`Failed creating save for pathworld: ${err?.message ?? err}`);
+				return;
+			}
+		}
+
+		try {
+			await this.controller.sendTo(
+				{ instanceId },
+				new lib.InstanceStartRequest(saveName),
+			);
+			this.logger.info(`Started pathworld instance ${instanceId}`);
+		} catch (err: any) {
+			this.logger.error(`Failed starting pathworld instance ${instanceId}: ${err?.message ?? err}`);
+		}
 	}
 
 	private async removeEdgesForTiles(tiles: TileRecord[]) {
