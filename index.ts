@@ -116,6 +116,7 @@ export const plugin: lib.PluginDeclaration = {
 		messages.GridworldStateRequest,
 		messages.GridworldCreateRequest,
 		messages.GridworldDeleteRequest,
+		messages.GridworldSyncTileAreas,
 	],
 
 	webEntrypoint: "./web",

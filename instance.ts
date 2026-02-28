@@ -1,5 +1,6 @@
 import * as lib from "@clusterio/lib";
 import { BaseInstancePlugin } from "@clusterio/host";
+import * as messages from "./messages";
 
 type BoundaryConfig = {
 	tileX: number;
@@ -10,6 +11,10 @@ type BoundaryConfig = {
 
 export class InstancePlugin extends BaseInstancePlugin {
 	private warnedMissingConfig = false;
+
+	async init() {
+		this.instance.handle(messages.GridworldSyncTileAreas, this.handleGridworldSyncTileAreas.bind(this));
+	}
 
 	private getBoundaryConfig(logMissing: boolean): BoundaryConfig | null {
 		const tileX = this.instance.config.get("gridworld.tile_x");
@@ -38,7 +43,14 @@ export class InstancePlugin extends BaseInstancePlugin {
 		};
 	}
 
+	private isPathworld(): boolean {
+		return this.instance.config.get("instance.name") === "pathworld";
+	}
+
 	private async sendBoundaryConfig(logMissing: boolean) {
+		if (this.isPathworld()) {
+			return;
+		}
 		const config = this.getBoundaryConfig(logMissing);
 		if (!config) {
 			return;
@@ -50,7 +62,11 @@ export class InstancePlugin extends BaseInstancePlugin {
 	}
 
 	async onStart() {
-		await this.sendBoundaryConfig(true);
+		if (this.isPathworld()) {
+			await this.sendRcon("/sc gridworld.set_pathworld()");
+		} else {
+			await this.sendBoundaryConfig(true);
+		}
 	}
 
 	async onInstanceConfigFieldChanged(field: string) {
@@ -66,5 +82,10 @@ export class InstancePlugin extends BaseInstancePlugin {
 			return;
 		}
 		await this.sendBoundaryConfig(false);
+	}
+
+	async handleGridworldSyncTileAreas(event: messages.GridworldSyncTileAreas) {
+		const tilesJson = lib.escapeString(JSON.stringify(event.tiles));
+		await this.sendRcon(`/sc gridworld.sync_tile_areas('${tilesJson}')`);
 	}
 }

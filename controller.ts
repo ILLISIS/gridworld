@@ -702,6 +702,8 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				`Failed configuring spawn for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
 			);
 		}
+
+		await this.syncTileAreasToPathworld([tile]);
 	}
 
 	private async cleanupFailedTileCreation(tile: TileRecord) {
@@ -930,6 +932,52 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.markStateDirty();
 	}
 
+	private getPathworldInstanceId(): number | undefined {
+		for (const instance of this.controller.instances.values()) {
+			if (instance.config.get("instance.name") === "pathworld") {
+				return instance.id;
+			}
+		}
+		return undefined;
+	}
+
+	private async syncTileAreasToPathworld(tilesToSync?: TileRecord[]) {
+		const pathworldId = this.getPathworldInstanceId();
+		if (pathworldId === undefined) {
+			return;
+		}
+		const pathworldInstance = this.controller.instances.get(pathworldId);
+		if (!pathworldInstance || pathworldInstance.status !== "running") {
+			return;
+		}
+		const tileSize = this.controller.config.get("gridworld.tile_size");
+		const surfaceName = this.controller.config.get("gridworld.surface_name");
+		const source = tilesToSync ?? [...this.tiles.values()];
+		const tiles = source.map(tile => {
+			const half = tileSize / 2;
+			const centerX = tile.x * tileSize;
+			const centerY = tile.y * tileSize;
+			return {
+				minX: centerX - half,
+				maxX: centerX + half,
+				minY: centerY - half,
+				maxY: centerY + half,
+				surfaceName,
+			};
+		});
+		if (!tiles.length) {
+			return;
+		}
+		try {
+			await this.controller.sendTo(
+				{ instanceId: pathworldId },
+				new messages.GridworldSyncTileAreas(tiles),
+			);
+		} catch (err: any) {
+			this.logger.warn(`Failed to send tile bounds to pathworld: ${err?.message ?? err}`);
+		}
+	}
+
 	private async createPathworldInstance() {
 		const initialX = this.controller.config.get("gridworld.initial_tile_x");
 		const initialY = this.controller.config.get("gridworld.initial_tile_y");
@@ -994,7 +1042,21 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			this.logger.info(`Started pathworld instance ${instanceId}`);
 		} catch (err: any) {
 			this.logger.error(`Failed starting pathworld instance ${instanceId}: ${err?.message ?? err}`);
+			return;
 		}
+
+		// Wait for pathworld to reach "running" so that subsequent syncTileAreasToPathworld calls succeed.
+		const deadline = Date.now() + 60_000;
+		while (Date.now() < deadline) {
+			const updated = this.controller.instances.get(instanceId);
+			if (updated?.status === "running") {
+				break;
+			}
+			/* eslint-disable-next-line no-await-in-loop */
+			await new Promise(resolve => setTimeout(resolve, 500));
+		}
+
+		await this.syncTileAreasToPathworld();
 	}
 
 	private async removeEdgesForTiles(tiles: TileRecord[]) {

@@ -100,3 +100,35 @@ export class GridworldDeleteRequest {
 		return new this();
 	}
 }
+
+export class GridworldSyncTileAreas {
+	declare ["constructor"]: typeof GridworldSyncTileAreas;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public tiles: Array<{
+			minX: number;
+			maxX: number;
+			minY: number;
+			maxY: number;
+			surfaceName: string;
+		}>,
+	) { }
+
+	static jsonSchema = Type.Object({
+		tiles: Type.Array(Type.Object({
+			minX: Type.Number(),
+			maxX: Type.Number(),
+			minY: Type.Number(),
+			maxY: Type.Number(),
+			surfaceName: Type.String(),
+		})),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.tiles);
+	}
+}
