@@ -132,3 +132,79 @@ export class GridworldSyncTileAreas {
 		return new this(json.tiles);
 	}
 }
+
+const RailEntity = Type.Object({
+	name: Type.String(),
+	type: Type.String(),
+	surface: Type.String(),
+	x: Type.Number(),
+	y: Type.Number(),
+	direction: Type.Number(),
+	// train-stop fields
+	stopName: Type.Optional(Type.String()),
+	color: Type.Optional(Type.Object({
+		r: Type.Number(),
+		g: Type.Number(),
+		b: Type.Number(),
+		a: Type.Number(),
+	})),
+	priority: Type.Optional(Type.Number()),
+	trainLimit: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+	trainCount: Type.Optional(Type.Number()),
+});
+
+export type RailEntity = Static<typeof RailEntity>;
+
+export class GridworldSyncRailEntities {
+	declare ["constructor"]: typeof GridworldSyncRailEntities;
+	static type = "event" as const;
+	static src = "instance" as const;
+	static dst = "controller" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public instanceId: number,
+		public tileX: number,
+		public tileY: number,
+		public tileSize: number,
+		public entities: RailEntity[],
+	) { }
+
+	static jsonSchema = Type.Object({
+		instanceId: Type.Number(),
+		tileX: Type.Number(),
+		tileY: Type.Number(),
+		tileSize: Type.Number(),
+		entities: Type.Array(RailEntity),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.instanceId, json.tileX, json.tileY, json.tileSize, json.entities);
+	}
+}
+
+export class GridworldApplyRailEntities {
+	declare ["constructor"]: typeof GridworldApplyRailEntities;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public tileX: number,
+		public tileY: number,
+		public tileSize: number,
+		public entities: RailEntity[],
+	) { }
+
+	static jsonSchema = Type.Object({
+		tileX: Type.Number(),
+		tileY: Type.Number(),
+		tileSize: Type.Number(),
+		entities: Type.Array(RailEntity),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.tileX, json.tileY, json.tileSize, json.entities);
+	}
+}
