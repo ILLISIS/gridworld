@@ -119,6 +119,8 @@ export const plugin: lib.PluginDeclaration = {
 		messages.GridworldSyncTileAreas,
 		messages.GridworldSyncRailEntities,
 		messages.GridworldApplyRailEntities,
+		messages.GridworldSyncUeStops,
+		messages.GridworldApplyUeStops,
 	],
 
 	webEntrypoint: "./web",

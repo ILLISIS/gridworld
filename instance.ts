@@ -9,17 +9,31 @@ type RailEntitiesIPC = {
 	entities: messages.RailEntity[];
 };
 
+type UeStopsIPC = {
+	tile_x: number;
+	tile_y: number;
+	stops: messages.UeStop[];
+};
+
 export class InstancePlugin extends BaseInstancePlugin {
 	private warnedMissingConfig = false;
 
 	async init() {
 		this.instance.handle(messages.GridworldSyncTileAreas, this.handleGridworldSyncTileAreas.bind(this));
 		this.instance.handle(messages.GridworldApplyRailEntities, this.handleGridworldApplyRailEntities.bind(this));
+		this.instance.handle(messages.GridworldApplyUeStops, this.handleGridworldApplyUeStops.bind(this));
 
 		// Receive rail entity data collected by Lua via clusterio_api.send_json("gridworld:rail_entities", ...)
 		(this.instance.server as any).on("ipc-gridworld:rail_entities", (data: RailEntitiesIPC) => {
 			this.handleRailEntitiesIpc(data).catch(err => this.logger.error(
 				`Error handling rail entities IPC:\n${err.stack}`,
+			));
+		});
+
+		// Receive UE stop data collected by Lua via clusterio_api.send_json("gridworld:ue_stops", ...)
+		(this.instance.server as any).on("ipc-gridworld:ue_stops", (data: UeStopsIPC) => {
+			this.handleUeStopsIpc(data).catch(err => this.logger.error(
+				`Error handling UE stops IPC:\n${err.stack}`,
 			));
 		});
 	}
@@ -118,5 +132,26 @@ export class InstancePlugin extends BaseInstancePlugin {
 			entities:  event.entities,
 		}));
 		await this.sendRcon(`/sc gridworld.apply_rail_entities('${json}')`);
+	}
+
+	private async handleUeStopsIpc(data: UeStopsIPC) {
+		const instanceId = this.instance.config.get("instance.id") as number;
+		this.logger.info(`[gridworld] UE stops IPC received: tile=${data.tile_x},${data.tile_y} stops=${data.stops?.length ?? 0} — forwarding to controller`);
+		this.instance.sendTo("controller", new messages.GridworldSyncUeStops(
+			instanceId,
+			data.tile_x,
+			data.tile_y,
+			data.stops,
+		));
+	}
+
+	async handleGridworldApplyUeStops(event: messages.GridworldApplyUeStops) {
+		this.logger.info(`[gridworld] apply_ue_stops received: tile=${event.tileX},${event.tileY} stops=${event.stops?.length ?? 0}`);
+		const json = lib.escapeString(JSON.stringify({
+			tile_x: event.tileX,
+			tile_y: event.tileY,
+			stops:  event.stops,
+		}));
+		await this.sendRcon(`/sc gridworld.apply_ue_stops('${json}')`);
 	}
 }

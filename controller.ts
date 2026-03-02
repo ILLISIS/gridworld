@@ -146,6 +146,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.controller.handle(messages.GridworldCreateRequest, this.handleGridworldCreateRequest.bind(this));
 		this.controller.handle(messages.GridworldDeleteRequest, this.handleGridworldDeleteRequest.bind(this));
 		this.controller.handle(messages.GridworldSyncRailEntities, this.handleGridworldSyncRailEntities.bind(this));
+		this.controller.handle(messages.GridworldSyncUeStops, this.handleGridworldSyncUeStops.bind(this));
 		this.controller.subscriptions.handle(messages.GridworldStateUpdate, this.handleGridworldStateSubscription.bind(this));
 
 		this.tiles = await loadTiles(this.controller.config, this.logger);
@@ -890,6 +891,33 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			);
 		} catch (err: any) {
 			this.logger.warn(`Failed to forward rail entities to pathworld: ${err?.message ?? err}`);
+		}
+	}
+
+	private async handleGridworldSyncUeStops(event: messages.GridworldSyncUeStops) {
+		this.logger.info(`[gridworld] UE stops sync received from instance ${event.instanceId}: tile=${event.tileX},${event.tileY} stops=${event.stops?.length ?? 0}`);
+		const pathworldId = this.getPathworldInstanceId();
+		if (pathworldId === undefined) {
+			this.logger.warn("[gridworld] UE stops sync: no pathworld instance found");
+			return;
+		}
+		const pathworldInstance = this.controller.instances.get(pathworldId);
+		if (!pathworldInstance || pathworldInstance.status !== "running") {
+			this.logger.warn(`[gridworld] UE stops sync: pathworld instance ${pathworldId} not running (status=${pathworldInstance?.status ?? "not found"})`);
+			return;
+		}
+		this.logger.info(`[gridworld] UE stops sync: forwarding tile=${event.tileX},${event.tileY} stops=${event.stops?.length ?? 0} to pathworld ${pathworldId}`);
+		try {
+			await this.controller.sendTo(
+				{ instanceId: pathworldId },
+				new messages.GridworldApplyUeStops(
+					event.tileX,
+					event.tileY,
+					event.stops,
+				),
+			);
+		} catch (err: any) {
+			this.logger.warn(`Failed to forward UE stops to pathworld: ${err?.message ?? err}`);
 		}
 	}
 

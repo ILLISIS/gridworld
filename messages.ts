@@ -208,3 +208,63 @@ export class GridworldApplyRailEntities {
 		return new this(json.tileX, json.tileY, json.tileSize, json.entities);
 	}
 }
+
+const UeStop = Type.Object({
+	surface: Type.String(),
+	x: Type.Number(),
+	y: Type.Number(),
+	direction: Type.Number(),
+	stopName: Type.Optional(Type.String()),
+});
+
+export type UeStop = Static<typeof UeStop>;
+
+export class GridworldSyncUeStops {
+	declare ["constructor"]: typeof GridworldSyncUeStops;
+	static type = "event" as const;
+	static src = "instance" as const;
+	static dst = "controller" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public instanceId: number,
+		public tileX: number,
+		public tileY: number,
+		public stops: UeStop[],
+	) { }
+
+	static jsonSchema = Type.Object({
+		instanceId: Type.Number(),
+		tileX: Type.Number(),
+		tileY: Type.Number(),
+		stops: Type.Array(UeStop),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.instanceId, json.tileX, json.tileY, json.stops);
+	}
+}
+
+export class GridworldApplyUeStops {
+	declare ["constructor"]: typeof GridworldApplyUeStops;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public tileX: number,
+		public tileY: number,
+		public stops: UeStop[],
+	) { }
+
+	static jsonSchema = Type.Object({
+		tileX: Type.Number(),
+		tileY: Type.Number(),
+		stops: Type.Array(UeStop),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.tileX, json.tileY, json.stops);
+	}
+}
