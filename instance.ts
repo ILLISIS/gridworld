@@ -131,7 +131,7 @@ export class InstancePlugin extends BaseInstancePlugin {
 			tile_size: event.tileSize,
 			entities:  event.entities,
 		}));
-		await this.sendRcon(`/sc gridworld.apply_rail_entities('${json}')`);
+		await this.sendRcon(`/sc rail_sync_manager.apply_rail_entities('${json}')`);
 	}
 
 	private async handleUeStopsIpc(data: UeStopsIPC) {
@@ -152,6 +152,6 @@ export class InstancePlugin extends BaseInstancePlugin {
 			tile_y: event.tileY,
 			stops:  event.stops,
 		}));
-		await this.sendRcon(`/sc gridworld.apply_ue_stops('${json}')`);
+		await this.sendRcon(`/sc rail_sync_manager.apply_ue_stops('${json}')`);
 	}
 }
