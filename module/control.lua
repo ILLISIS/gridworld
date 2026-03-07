@@ -157,10 +157,6 @@ gridworld.events[defines.events.on_robot_built_entity] = function(event)
 	destroy_if_outside(event.entity)
 end
 
-gridworld.events[defines.events.script_raised_built] = function(event)
-	destroy_if_outside(event.entity)
-end
-
 gridworld.events[defines.events.script_raised_revive] = function(event)
 	destroy_if_outside(event.entity)
 end
