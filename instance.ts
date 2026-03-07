@@ -15,13 +15,29 @@ type UeStopsIPC = {
 	stops: messages.UeStop[];
 };
 
+type ReturnTrainPathIPC = {
+	id: number;
+	path: string[] | Record<string, string>;
+	source_instance_id: number;
+};
+
+type RequestTrainPathIPC = {
+	id: number;
+	surface: string;
+	position: { x: number; y: number };
+	direction: number;
+	destination: string;
+};
+
 export class InstancePlugin extends BaseInstancePlugin {
 	private warnedMissingConfig = false;
 
 	async init() {
 		this.instance.handle(messages.GridworldSyncTileAreas, this.handleGridworldSyncTileAreas.bind(this));
 		this.instance.handle(messages.GridworldApplyRailEntities, this.handleGridworldApplyRailEntities.bind(this));
-		this.instance.handle(messages.GridworldApplyUeStops, this.handleGridworldApplyUeStops.bind(this));
+		this.instance.handle(messages.GridworldApplyUeStops, this.handleApplyUeStops.bind(this));
+		this.instance.handle(messages.GridworldReturnTrainPath, this.handleReturnTrainPath.bind(this));
+		this.instance.handle(messages.GridworldForwardTrainPath, this.handleForwardTrainPath.bind(this));
 
 		// Receive rail entity data collected by Lua via clusterio_api.send_json("gridworld:rail_entities", ...)
 		(this.instance.server as any).on("ipc-gridworld:rail_entities", (data: RailEntitiesIPC) => {
@@ -30,10 +46,24 @@ export class InstancePlugin extends BaseInstancePlugin {
 			));
 		});
 
-		// Receive UE stop data collected by Lua via clusterio_api.send_json("gridworld:ue_stops", ...)
+		// Receive ue_stops data from Lua via clusterio_api.send_json("gridworld:ue_stops", ...)
 		(this.instance.server as any).on("ipc-gridworld:ue_stops", (data: UeStopsIPC) => {
 			this.handleUeStopsIpc(data).catch(err => this.logger.error(
-				`Error handling UE stops IPC:\n${err.stack}`,
+				`Error handling ue_stops IPC:\n${err.stack}`,
+			));
+		});
+
+		// Receive train path requests from Lua via clusterio_api.send_json("gridworld:request_train_path", ...)
+		(this.instance.server as any).on("ipc-gridworld:request_train_path", (data: RequestTrainPathIPC) => {
+			this.handleRequestTrainPathIpc(data).catch(err => this.logger.error(
+				`Error handling request_train_path IPC:\n${err.stack}`,
+			));
+		});
+
+		// Receive train path results from Lua (pathworld) via clusterio_api.send_json("gridworld:return_train_path", ...)
+		(this.instance.server as any).on("ipc-gridworld:return_train_path", (data: ReturnTrainPathIPC) => {
+			this.handleReturnTrainPathIpc(data).catch(err => this.logger.error(
+				`Error handling return_train_path IPC:\n${err.stack}`,
 			));
 		});
 	}
@@ -113,18 +143,17 @@ export class InstancePlugin extends BaseInstancePlugin {
 
 	private async handleRailEntitiesIpc(data: RailEntitiesIPC) {
 		const instanceId = this.instance.config.get("instance.id") as number;
-		this.logger.info(`[gridworld] rail IPC received: tile=${data.tile_x},${data.tile_y} entities=${data.entities?.length ?? 0} — forwarding to controller`);
+		const entities: messages.RailEntity[] = Array.isArray(data.entities) ? data.entities : Object.values(data.entities as any);
 		this.instance.sendTo("controller", new messages.GridworldSyncRailEntities(
 			instanceId,
 			data.tile_x,
 			data.tile_y,
 			data.tile_size,
-			data.entities,
+			entities,
 		));
 	}
 
 	async handleGridworldApplyRailEntities(event: messages.GridworldApplyRailEntities) {
-		this.logger.info(`[gridworld] apply_rail_entities received: tile=${event.tileX},${event.tileY} entities=${event.entities?.length ?? 0}`);
 		const json = lib.escapeString(JSON.stringify({
 			tile_x:    event.tileX,
 			tile_y:    event.tileY,
@@ -135,23 +164,67 @@ export class InstancePlugin extends BaseInstancePlugin {
 	}
 
 	private async handleUeStopsIpc(data: UeStopsIPC) {
-		const instanceId = this.instance.config.get("instance.id") as number;
-		this.logger.info(`[gridworld] UE stops IPC received: tile=${data.tile_x},${data.tile_y} stops=${data.stops?.length ?? 0} — forwarding to controller`);
+		const stops: messages.UeStop[] = Array.isArray(data.stops) ? data.stops : Object.values(data.stops as any);
 		this.instance.sendTo("controller", new messages.GridworldSyncUeStops(
-			instanceId,
 			data.tile_x,
 			data.tile_y,
-			data.stops,
+			stops,
 		));
 	}
 
-	async handleGridworldApplyUeStops(event: messages.GridworldApplyUeStops) {
-		this.logger.info(`[gridworld] apply_ue_stops received: tile=${event.tileX},${event.tileY} stops=${event.stops?.length ?? 0}`);
+	async handleApplyUeStops(event: messages.GridworldApplyUeStops) {
 		const json = lib.escapeString(JSON.stringify({
 			tile_x: event.tileX,
 			tile_y: event.tileY,
 			stops:  event.stops,
 		}));
 		await this.sendRcon(`/sc rail_sync_manager.apply_ue_stops('${json}')`);
+	}
+
+	private async handleRequestTrainPathIpc(data: RequestTrainPathIPC) {
+		const instanceId = this.instance.config.get("instance.id") as number;
+		// Normalize position — Factorio MapPosition may serialize as {"1":x,"2":y} instead of {"x":x,"y":y}
+		const pos = data.position as any;
+		const position = { x: pos.x ?? pos["1"] ?? 0, y: pos.y ?? pos["2"] ?? 0 };
+		this.logger.info(`[gridworld] request_train_path IPC received: train=${data.id} destination="${data.destination}" pos=${position.x},${position.y}`);
+		this.instance.sendTo("controller", new messages.GridworldRequestTrainPath(
+			data.id,
+			data.surface,
+			position,
+			data.direction,
+			data.destination,
+			instanceId,
+		));
+	}
+
+	private async handleReturnTrainPathIpc(data: ReturnTrainPathIPC) {
+		// Factorio serializes an empty Lua table as {} (object) not [] (array).
+		// Normalize path to always be an array.
+		const path: string[] = Array.isArray(data.path) ? data.path : Object.values(data.path as any);
+		this.logger.info(`[gridworld] return_train_path IPC received from pathworld: train=${data.id} sourceInstance=${data.source_instance_id} pathLen=${path.length}`);
+		this.instance.sendTo("controller", new messages.GridworldReturnTrainPathResult(
+			data.id,
+			path,
+			data.source_instance_id,
+		));
+	}
+
+	async handleReturnTrainPath(event: messages.GridworldReturnTrainPath) {
+		this.logger.info(`[gridworld] return_train_path received: train=${event.id}`);
+		const json = lib.escapeString(JSON.stringify({ id: event.id, path: event.path }));
+		await this.sendRcon(`/sc train_path_manager.apply_train_path_result('${json}')`);
+	}
+
+	async handleForwardTrainPath(event: messages.GridworldForwardTrainPath) {
+		this.logger.info(`[gridworld] forward_train_path received: train=${event.id} destination=${event.destination} sourceInstance=${event.sourceInstanceId}`);
+		const json = lib.escapeString(JSON.stringify({
+			id: event.id,
+			surface: event.surface,
+			position: event.position,
+			direction: event.direction,
+			destination: event.destination,
+			sourceInstanceId: event.sourceInstanceId,
+		}));
+		await this.sendRcon(`/sc train_path_manager.find_train_path('${json}')`);
 	}
 }

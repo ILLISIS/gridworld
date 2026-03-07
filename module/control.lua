@@ -1,5 +1,6 @@
 local clusterio_api = require("modules/clusterio/api")
 local rail_sync_manager = require("modules/gridworld/rail_sync_manager")
+local train_path_manager = require("modules/gridworld/train_path_manager")
 
 local gridworld = {
 	events = {},

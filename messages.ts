@@ -209,6 +209,116 @@ export class GridworldApplyRailEntities {
 	}
 }
 
+// Sent from an instance to the controller when a train needs a cross-instance path.
+export class GridworldRequestTrainPath {
+	declare ["constructor"]: typeof GridworldRequestTrainPath;
+	static type = "event" as const;
+	static src = "instance" as const;
+	static dst = "controller" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public id: number,
+		public surface: string,
+		public position: { x: number; y: number },
+		public direction: number,
+		public destination: string,
+		public sourceInstanceId: number,
+	) { }
+
+	static jsonSchema = Type.Object({
+		id: Type.Number(),
+		surface: Type.String(),
+		position: Type.Object({ x: Type.Number(), y: Type.Number() }),
+		direction: Type.Number(),
+		destination: Type.String(),
+		sourceInstanceId: Type.Number(),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.id, json.surface, json.position, json.direction, json.destination, json.sourceInstanceId);
+	}
+}
+
+// Forwarded from the controller to the pathworld instance to find the path.
+export class GridworldForwardTrainPath {
+	declare ["constructor"]: typeof GridworldForwardTrainPath;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public id: number,
+		public surface: string,
+		public position: { x: number; y: number },
+		public direction: number,
+		public destination: string,
+		public sourceInstanceId: number,
+	) { }
+
+	static jsonSchema = Type.Object({
+		id: Type.Number(),
+		surface: Type.String(),
+		position: Type.Object({ x: Type.Number(), y: Type.Number() }),
+		direction: Type.Number(),
+		destination: Type.String(),
+		sourceInstanceId: Type.Number(),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.id, json.surface, json.position, json.direction, json.destination, json.sourceInstanceId);
+	}
+}
+
+// Sent from the pathworld instance to the controller with the resolved path result.
+export class GridworldReturnTrainPathResult {
+	declare ["constructor"]: typeof GridworldReturnTrainPathResult;
+	static type = "event" as const;
+	static src = "instance" as const;
+	static dst = "controller" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public id: number,
+		public path: string[],
+		public sourceInstanceId: number,
+	) { }
+
+	static jsonSchema = Type.Object({
+		id: Type.Number(),
+		path: Type.Array(Type.String()),
+		sourceInstanceId: Type.Number(),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.id, json.path, json.sourceInstanceId);
+	}
+}
+
+// Sent from the controller back to the originating instance with the resolved path.
+export class GridworldReturnTrainPath {
+	declare ["constructor"]: typeof GridworldReturnTrainPath;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public id: number,
+		public path: string[],
+	) { }
+
+	static jsonSchema = Type.Object({
+		id: Type.Number(),
+		path: Type.Array(Type.String()),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.id, json.path);
+	}
+}
+
 const UeStop = Type.Object({
 	surface: Type.String(),
 	x: Type.Number(),
@@ -219,6 +329,7 @@ const UeStop = Type.Object({
 
 export type UeStop = Static<typeof UeStop>;
 
+// Sent from a tile instance to the controller with its current ue_source_trainstop entities.
 export class GridworldSyncUeStops {
 	declare ["constructor"]: typeof GridworldSyncUeStops;
 	static type = "event" as const;
@@ -227,24 +338,23 @@ export class GridworldSyncUeStops {
 	static plugin = "gridworld" as const;
 
 	constructor(
-		public instanceId: number,
 		public tileX: number,
 		public tileY: number,
 		public stops: UeStop[],
 	) { }
 
 	static jsonSchema = Type.Object({
-		instanceId: Type.Number(),
 		tileX: Type.Number(),
 		tileY: Type.Number(),
 		stops: Type.Array(UeStop),
 	});
 
 	static fromJSON(json: Static<typeof this.jsonSchema>) {
-		return new this(json.instanceId, json.tileX, json.tileY, json.stops);
+		return new this(json.tileX, json.tileY, json.stops);
 	}
 }
 
+// Forwarded from the controller to the pathworld instance to apply ue_source_trainstops.
 export class GridworldApplyUeStops {
 	declare ["constructor"]: typeof GridworldApplyUeStops;
 	static type = "event" as const;
