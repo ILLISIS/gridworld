@@ -147,6 +147,8 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.controller.handle(messages.GridworldDeleteRequest, this.handleGridworldDeleteRequest.bind(this));
 		this.controller.handle(messages.GridworldSyncRailEntities, this.handleGridworldSyncRailEntities.bind(this));
 		this.controller.handle(messages.GridworldSyncUeStops, this.handleGridworldSyncUeStops.bind(this));
+		this.controller.handle(messages.GridworldRequestTrainPath, this.handleGridworldRequestTrainPath.bind(this));
+		this.controller.handle(messages.GridworldReturnTrainPathResult, this.handleGridworldReturnTrainPathResult.bind(this));
 		this.controller.subscriptions.handle(messages.GridworldStateUpdate, this.handleGridworldStateSubscription.bind(this));
 
 		this.tiles = await loadTiles(this.controller.config, this.logger);
@@ -866,8 +868,26 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		};
 	}
 
+	private async handleGridworldSyncUeStops(event: messages.GridworldSyncUeStops) {
+		const pathworldId = this.getPathworldInstanceId();
+		if (pathworldId === undefined) {
+			return;
+		}
+		const pathworldInstance = this.controller.instances.get(pathworldId);
+		if (!pathworldInstance || pathworldInstance.status !== "running") {
+			return;
+		}
+		try {
+			await this.controller.sendTo(
+				{ instanceId: pathworldId },
+				new messages.GridworldApplyUeStops(event.tileX, event.tileY, event.stops),
+			);
+		} catch (err: any) {
+			this.logger.warn(`[gridworld] Failed to forward ue_stops to pathworld: ${err?.message ?? err}`);
+		}
+	}
+
 	private async handleGridworldSyncRailEntities(event: messages.GridworldSyncRailEntities) {
-		this.logger.info(`[gridworld] rail sync received from instance ${event.instanceId}: tile=${event.tileX},${event.tileY} entities=${event.entities?.length ?? 0}`);
 		const pathworldId = this.getPathworldInstanceId();
 		if (pathworldId === undefined) {
 			this.logger.warn("[gridworld] rail sync: no pathworld instance found");
@@ -878,7 +898,6 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			this.logger.warn(`[gridworld] rail sync: pathworld instance ${pathworldId} not running (status=${pathworldInstance?.status ?? "not found"})`);
 			return;
 		}
-		this.logger.info(`[gridworld] rail sync: forwarding tile=${event.tileX},${event.tileY} entities=${event.entities?.length ?? 0} to pathworld ${pathworldId}`);
 		try {
 			await this.controller.sendTo(
 				{ instanceId: pathworldId },
@@ -894,30 +913,53 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 	}
 
-	private async handleGridworldSyncUeStops(event: messages.GridworldSyncUeStops) {
-		this.logger.info(`[gridworld] UE stops sync received from instance ${event.instanceId}: tile=${event.tileX},${event.tileY} stops=${event.stops?.length ?? 0}`);
+	private async handleGridworldRequestTrainPath(event: messages.GridworldRequestTrainPath) {
 		const pathworldId = this.getPathworldInstanceId();
 		if (pathworldId === undefined) {
-			this.logger.warn("[gridworld] UE stops sync: no pathworld instance found");
+			this.logger.warn("[gridworld] request_train_path: no pathworld instance found");
 			return;
 		}
 		const pathworldInstance = this.controller.instances.get(pathworldId);
 		if (!pathworldInstance || pathworldInstance.status !== "running") {
-			this.logger.warn(`[gridworld] UE stops sync: pathworld instance ${pathworldId} not running (status=${pathworldInstance?.status ?? "not found"})`);
+			this.logger.warn(`[gridworld] request_train_path: pathworld instance ${pathworldId} not running (status=${pathworldInstance?.status ?? "not found"})`);
 			return;
 		}
-		this.logger.info(`[gridworld] UE stops sync: forwarding tile=${event.tileX},${event.tileY} stops=${event.stops?.length ?? 0} to pathworld ${pathworldId}`);
 		try {
 			await this.controller.sendTo(
 				{ instanceId: pathworldId },
-				new messages.GridworldApplyUeStops(
-					event.tileX,
-					event.tileY,
-					event.stops,
+				new messages.GridworldForwardTrainPath(
+					event.id,
+					event.surface,
+					event.position,
+					event.direction,
+					event.destination,
+					event.sourceInstanceId,
 				),
 			);
+			this.logger.info(`[gridworld] request_train_path forwarded: train=${event.id} destination=${event.destination} sourceInstance=${event.sourceInstanceId} pathworld=${pathworldId}`);
 		} catch (err: any) {
-			this.logger.warn(`Failed to forward UE stops to pathworld: ${err?.message ?? err}`);
+			this.logger.warn(`[gridworld] Failed to forward train path request to pathworld: ${err?.message ?? err}`);
+		}
+	}
+
+	private async handleGridworldReturnTrainPathResult(event: messages.GridworldReturnTrainPathResult) {
+		const sourceInstance = this.controller.instances.get(event.sourceInstanceId);
+		if (!sourceInstance) {
+			this.logger.warn(`[gridworld] return_train_path: source instance ${event.sourceInstanceId} not found for train=${event.id}`);
+			return;
+		}
+		if (sourceInstance.status !== "running") {
+			this.logger.warn(`[gridworld] return_train_path: source instance ${event.sourceInstanceId} not running (status=${sourceInstance.status}) for train=${event.id}`);
+			return;
+		}
+		try {
+			await this.controller.sendTo(
+				{ instanceId: event.sourceInstanceId },
+				new messages.GridworldReturnTrainPath(event.id, event.path),
+			);
+			this.logger.info(`[gridworld] return_train_path forwarded: train=${event.id} to instance=${event.sourceInstanceId}`);
+		} catch (err: any) {
+			this.logger.warn(`[gridworld] Failed to forward train path result to instance ${event.sourceInstanceId}: ${err?.message ?? err}`);
 		}
 	}
 

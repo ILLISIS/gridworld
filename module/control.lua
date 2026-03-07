@@ -15,6 +15,7 @@ local function ensure_storage()
 			surface_name = nil,
 			bounds = nil,
 			is_pathworld = false,
+			train_path_requests = {},
 		}
 	end
 end
@@ -128,6 +129,10 @@ end
 gridworld.events[clusterio_api.events.on_server_startup] = function(_event)
 	ensure_storage()
 	update_bounds()
+end
+
+gridworld.events[defines.events.on_train_changed_state] = function(event)
+	train_path_manager.on_train_changed_state(event)
 end
 
 gridworld.on_nth_tick[900] = function()

@@ -12,6 +12,7 @@ rail_sync_manager.RAIL_TYPES = {
     ["rail-signal"] = true,
     ["rail-chain-signal"] = true,
     ["train-stop"] = true,
+	["locomotive"] = true,
     -- todo: add elevated_rail entities
 }
 
