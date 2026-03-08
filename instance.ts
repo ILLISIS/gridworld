@@ -38,6 +38,7 @@ export class InstancePlugin extends BaseInstancePlugin {
 		this.instance.handle(messages.GridworldApplyUeStops, this.handleApplyUeStops.bind(this));
 		this.instance.handle(messages.GridworldReturnTrainPath, this.handleReturnTrainPath.bind(this));
 		this.instance.handle(messages.GridworldForwardTrainPath, this.handleForwardTrainPath.bind(this));
+		this.instance.handle(messages.GridworldSyncDaytime, this.handleSyncDaytime.bind(this));
 
 		// Receive rail entity data collected by Lua via clusterio_api.send_json("gridworld:rail_entities", ...)
 		(this.instance.server as any).on("ipc-gridworld:rail_entities", (data: RailEntitiesIPC) => {
@@ -213,6 +214,15 @@ export class InstancePlugin extends BaseInstancePlugin {
 		this.logger.info(`[gridworld] return_train_path received: train=${event.id}`);
 		const json = lib.escapeString(JSON.stringify({ id: event.id, path: event.path }));
 		await this.sendRcon(`/sc train_path_manager.apply_train_path_result('${json}')`);
+	}
+
+	async handleSyncDaytime(event: messages.GridworldSyncDaytime) {
+		const json = lib.escapeString(JSON.stringify({
+			daytime: event.daytime,
+			is_startup: event.isStartup,
+			ticks_per_day: event.ticksPerDay,
+		}));
+		await this.sendRcon(`/sc time_sync_manager.apply_canonical_daytime('${json}')`);
 	}
 
 	async handleForwardTrainPath(event: messages.GridworldForwardTrainPath) {

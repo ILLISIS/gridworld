@@ -354,6 +354,31 @@ export class GridworldSyncUeStops {
 	}
 }
 
+// Sent from the controller to tile instances to synchronize day/night cycle.
+export class GridworldSyncDaytime {
+	declare ["constructor"]: typeof GridworldSyncDaytime;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public daytime: number,
+		public isStartup: boolean,
+		public ticksPerDay: number,
+	) { }
+
+	static jsonSchema = Type.Object({
+		daytime: Type.Number(),
+		isStartup: Type.Boolean(),
+		ticksPerDay: Type.Number(),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.daytime, json.isStartup, json.ticksPerDay);
+	}
+}
+
 // Forwarded from the controller to the pathworld instance to apply ue_source_trainstops.
 export class GridworldApplyUeStops {
 	declare ["constructor"]: typeof GridworldApplyUeStops;

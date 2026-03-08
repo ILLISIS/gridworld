@@ -55,6 +55,13 @@ const ACTIVE_INSTANCE_STATUSES = new Set<lib.InstanceStatus>([
 	"exporting_data",
 ]);
 
+const DAYTIME_SYNC_INTERVAL_MS = 600_000; // 600 seconds
+
+type TimeEpoch = {
+	epochMs: number;
+	epochDaytime: number;
+};
+
 function tileKey(x: number, y: number) {
 	return `${x},${y}`;
 }
@@ -140,6 +147,9 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	private mapExchangeError: string | null = null;
 	private stateUpdatedAtMs = Date.now();
 	private stateBroadcastQueued = false;
+	private timeEpoch: TimeEpoch = { epochMs: Date.now(), epochDaytime: 0 };
+	private timeEpochDirty = false;
+	private timeSyncInterval: ReturnType<typeof setInterval> | null = null;
 
 	async init() {
 		this.controller.handle(messages.GridworldStateRequest, this.handleGridworldStateRequest.bind(this));
@@ -154,14 +164,48 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.tiles = await loadTiles(this.controller.config, this.logger);
 		this.rebuildTileIndex();
 		this.loadMapExchangeString();
+		await this.loadTimeEpoch();
 		await this.syncTileInstanceConfigs();
 		await this.ensureEdgesForKnownTiles();
+
+		this.timeSyncInterval = setInterval(() => {
+			this.broadcastDaytime(false).catch(err =>
+				this.logger.error(`Failed broadcasting daytime: ${err?.message ?? err}`),
+			);
+		}, DAYTIME_SYNC_INTERVAL_MS);
+	}
+
+	async onShutdown() {
+		if (this.timeSyncInterval !== null) {
+			clearInterval(this.timeSyncInterval);
+			this.timeSyncInterval = null;
+		}
+	}
+
+	async onInstanceStatusChanged(instance: InstanceInfo, prev?: lib.InstanceStatus) {
+		if (instance.status === "running" && prev !== "running") {
+			// Skip pathworld — it doesn't need daytime sync
+			if (instance.config.get("instance.name") === "pathworld") {
+				return;
+			}
+			try {
+				await this.sendDaytimeToInstance(instance.id, true);
+			} catch (err: any) {
+				this.logger.warn(
+					`Failed sending startup daytime to instance ${instance.id}: ${err?.message ?? err}`,
+				);
+			}
+		}
 	}
 
 	async onSaveData() {
 		if (this.storageDirty) {
 			await saveTiles(this.controller.config, this.tiles, this.logger);
 			this.storageDirty = false;
+		}
+		if (this.timeEpochDirty) {
+			await this.saveTimeEpoch();
+			this.timeEpochDirty = false;
 		}
 	}
 
@@ -1156,6 +1200,79 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 
 		await this.syncTileAreasToPathworld();
+	}
+
+	private getMsPerDay(): number {
+		const ticksPerDay = this.controller.config.get("gridworld.ticks_per_day");
+		return (ticksPerDay / 60) * 1000;
+	}
+
+	private getCanonicalDaytime(): number {
+		const elapsed = Date.now() - this.timeEpoch.epochMs;
+		return ((this.timeEpoch.epochDaytime + elapsed / this.getMsPerDay()) % 1.0 + 1.0) % 1.0;
+	}
+
+	private async loadTimeEpoch() {
+		const filePath = path.resolve(
+			this.controller.config.get("controller.database_directory"),
+			"gridworld_time.json",
+		);
+		try {
+			const content = await fs.readFile(filePath, "utf8");
+			const parsed = JSON.parse(content) as TimeEpoch;
+			if (Number.isFinite(parsed.epochMs) && Number.isFinite(parsed.epochDaytime)) {
+				this.timeEpoch = parsed;
+				return;
+			}
+		} catch (err: any) {
+			if (err.code !== "ENOENT") {
+				this.logger.warn(`Failed loading time epoch: ${err?.message ?? err}`);
+			}
+		}
+		this.timeEpoch = { epochMs: Date.now(), epochDaytime: 0 };
+		this.timeEpochDirty = true;
+	}
+
+	private async saveTimeEpoch() {
+		const filePath = path.resolve(
+			this.controller.config.get("controller.database_directory"),
+			"gridworld_time.json",
+		);
+		await lib.safeOutputFile(filePath, JSON.stringify(this.timeEpoch, null, "\t"));
+	}
+
+	private async sendDaytimeToInstance(instanceId: number, isStartup: boolean) {
+		const daytime = this.getCanonicalDaytime();
+		const ticksPerDay = this.controller.config.get("gridworld.ticks_per_day");
+		await this.controller.sendTo(
+			{ instanceId },
+			new messages.GridworldSyncDaytime(daytime, isStartup, ticksPerDay),
+		);
+	}
+
+	private async broadcastDaytime(isStartup: boolean) {
+		const daytime = this.getCanonicalDaytime();
+		const ticksPerDay = this.controller.config.get("gridworld.ticks_per_day");
+		this.logger.info(`[gridworld] broadcasting daytime=${daytime.toFixed(4)} isStartup=${isStartup} tiles=${this.tiles.size} ticksPerDay=${ticksPerDay}`);
+		for (const tile of this.tiles.values()) {
+			const instance = this.controller.instances.get(tile.instanceId);
+			if (!instance || instance.status !== "running") {
+				continue;
+			}
+			if (instance.config.get("instance.name") === "pathworld") {
+				continue;
+			}
+			try {
+				await this.controller.sendTo(
+					{ instanceId: tile.instanceId },
+					new messages.GridworldSyncDaytime(daytime, isStartup, ticksPerDay),
+				);
+			} catch (err: any) {
+				this.logger.warn(
+					`Failed sending daytime to instance ${tile.instanceId}: ${err?.message ?? err}`,
+				);
+			}
+		}
 	}
 
 	private async removeEdgesForTiles(tiles: TileRecord[]) {

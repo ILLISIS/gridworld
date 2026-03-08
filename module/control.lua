@@ -1,6 +1,7 @@
 local clusterio_api = require("modules/clusterio/api")
 local rail_sync_manager = require("modules/gridworld/rail_sync_manager")
 local train_path_manager = require("modules/gridworld/train_path_manager")
+local time_sync_manager = require("modules/gridworld/time_sync_manager")
 
 local gridworld = {
 	events = {},
@@ -139,6 +140,10 @@ end
 gridworld.on_nth_tick[900] = function()
 	rail_sync_manager.collect_and_send_rail_entities()
 	rail_sync_manager.collect_and_send_ue_stops()
+end
+
+gridworld.on_nth_tick[3600] = function()
+	time_sync_manager.check_convergence()
 end
 
 gridworld.events[defines.events.on_entity_spawned] = function(event)
