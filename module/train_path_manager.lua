@@ -14,9 +14,7 @@ local HANDLED_TRAIN_STATES = {
     [defines.train_state.no_path] = true,
 }
 
--- TODO: ignore station if the sourceinstanceId matches so when train repath outside of bound it is not picked up
 -- TODO: unreachable paths should be handled somehow. right now the train complains of destination full because of the edge stop
-
 
 --------------------------------------------------------------------------------------------------
 -- Source Instance
