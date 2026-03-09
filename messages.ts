@@ -223,7 +223,6 @@ export class GridworldRequestTrainPath {
 		public position: { x: number; y: number },
 		public direction: number,
 		public destination: string,
-		public sourceInstanceId: number,
 	) { }
 
 	static jsonSchema = Type.Object({
@@ -232,11 +231,42 @@ export class GridworldRequestTrainPath {
 		position: Type.Object({ x: Type.Number(), y: Type.Number() }),
 		direction: Type.Number(),
 		destination: Type.String(),
-		sourceInstanceId: Type.Number(),
 	});
 
 	static fromJSON(json: Static<typeof this.jsonSchema>) {
-		return new this(json.id, json.surface, json.position, json.direction, json.destination, json.sourceInstanceId);
+		return new this(json.id, json.surface, json.position, json.direction, json.destination);
+	}
+}
+
+// Sent from a source instance to cancel a pending path request.
+export class GridworldClearTrainPath {
+	declare ["constructor"]: typeof GridworldClearTrainPath;
+	static type = "event" as const;
+	static src = "instance" as const;
+	static dst = "controller" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(public id: number) { }
+
+	static jsonSchema = Type.Object({ id: Type.Number() });
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.id);
+	}
+}
+
+// Forwarded from the controller to the pathworld to cancel a queued path request.
+export class GridworldForwardClearTrainPath {
+	declare ["constructor"]: typeof GridworldForwardClearTrainPath;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(public id: number) { }
+
+	static jsonSchema = Type.Object({ id: Type.Number() });
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.id);
 	}
 }
 
@@ -319,6 +349,31 @@ export class GridworldReturnTrainPath {
 	}
 }
 
+// Sent from the controller to the destination instance to create a proxy train for station slot reservation.
+export class GridworldCreateTrainProxy {
+	declare ["constructor"]: typeof GridworldCreateTrainProxy;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(
+		public destination: string,
+		public edgeId: string,
+		public offset: number,
+	) { }
+
+	static jsonSchema = Type.Object({
+		destination: Type.String(),
+		edgeId: Type.String(),
+		offset: Type.Number(),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.destination, json.edgeId, json.offset);
+	}
+}
+
 const UeStop = Type.Object({
 	surface: Type.String(),
 	x: Type.Number(),
@@ -376,6 +431,45 @@ export class GridworldSyncDaytime {
 
 	static fromJSON(json: Static<typeof this.jsonSchema>) {
 		return new this(json.daytime, json.isStartup, json.ticksPerDay);
+	}
+}
+
+// Sent from source instance when a train cancels; tells controller to remove proxy at destination.
+export class GridworldRemoveTrainProxy {
+	declare ["constructor"]: typeof GridworldRemoveTrainProxy;
+	static type = "event" as const;
+	static src = "instance" as const;
+	static dst = "controller" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(public lastEdgeStop: string, public destination: string) { }
+
+	static jsonSchema = Type.Object({
+		lastEdgeStop: Type.String(),
+		destination: Type.String(),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.lastEdgeStop, json.destination);
+	}
+}
+
+// Forwarded from controller to the destination instance to destroy one proxy train.
+export class GridworldForwardRemoveTrainProxy {
+	declare ["constructor"]: typeof GridworldForwardRemoveTrainProxy;
+	static type = "event" as const;
+	static src = "controller" as const;
+	static dst = "instance" as const;
+	static plugin = "gridworld" as const;
+
+	constructor(public destination: string) { }
+
+	static jsonSchema = Type.Object({
+		destination: Type.String(),
+	});
+
+	static fromJSON(json: Static<typeof this.jsonSchema>) {
+		return new this(json.destination);
 	}
 }
 

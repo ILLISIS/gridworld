@@ -39,6 +39,9 @@ export class InstancePlugin extends BaseInstancePlugin {
 		this.instance.handle(messages.GridworldReturnTrainPath, this.handleReturnTrainPath.bind(this));
 		this.instance.handle(messages.GridworldForwardTrainPath, this.handleForwardTrainPath.bind(this));
 		this.instance.handle(messages.GridworldSyncDaytime, this.handleSyncDaytime.bind(this));
+		this.instance.handle(messages.GridworldCreateTrainProxy, this.handleCreateTrainProxy.bind(this));
+		this.instance.handle(messages.GridworldForwardClearTrainPath, this.handleForwardClearTrainPath.bind(this));
+		this.instance.handle(messages.GridworldForwardRemoveTrainProxy, this.handleForwardRemoveTrainProxy.bind(this));
 
 		// Receive rail entity data collected by Lua via clusterio_api.send_json("gridworld:rail_entities", ...)
 		(this.instance.server as any).on("ipc-gridworld:rail_entities", (data: RailEntitiesIPC) => {
@@ -67,6 +70,21 @@ export class InstancePlugin extends BaseInstancePlugin {
 				`Error handling return_train_path IPC:\n${err.stack}`,
 			));
 		});
+
+		// Receive clear path request from Lua via clusterio_api.send_json("gridworld:clear_train_path_request", ...)
+		(this.instance.server as any).on("ipc-gridworld:clear_train_path_request", (data: { id: number }) => {
+			this.instance.sendTo("controller", new messages.GridworldClearTrainPath(data.id));
+		});
+
+		// Receive remove proxy request from Lua via clusterio_api.send_json("gridworld:remove_train_proxy", ...)
+		(this.instance.server as any).on("ipc-gridworld:remove_train_proxy", (data: { last_edge_stop: string; destination: string }) => {
+			this.instance.sendTo("controller", new messages.GridworldRemoveTrainProxy(data.last_edge_stop, data.destination));
+		});
+	}
+
+	async handleForwardRemoveTrainProxy(event: messages.GridworldForwardRemoveTrainProxy) {
+		const json = lib.escapeString(JSON.stringify({ destination: event.destination }));
+		await this.sendRcon(`/sc train_path_manager.remove_train_proxies('${json}')`);
 	}
 
 	private getBoundaryConfig(logMissing: boolean): { tileX: number; tileY: number; tileSize: number; surfaceName: string } | null {
@@ -183,7 +201,6 @@ export class InstancePlugin extends BaseInstancePlugin {
 	}
 
 	private async handleRequestTrainPathIpc(data: RequestTrainPathIPC) {
-		const instanceId = this.instance.config.get("instance.id") as number;
 		// Normalize position — Factorio MapPosition may serialize as {"1":x,"2":y} instead of {"x":x,"y":y}
 		const pos = data.position as any;
 		const position = { x: pos.x ?? pos["1"] ?? 0, y: pos.y ?? pos["2"] ?? 0 };
@@ -193,8 +210,7 @@ export class InstancePlugin extends BaseInstancePlugin {
 			data.surface,
 			position,
 			data.direction,
-			data.destination,
-			instanceId,
+			data.destination
 		));
 	}
 
@@ -223,6 +239,21 @@ export class InstancePlugin extends BaseInstancePlugin {
 			ticks_per_day: event.ticksPerDay,
 		}));
 		await this.sendRcon(`/sc time_sync_manager.apply_canonical_daytime('${json}')`);
+	}
+
+	async handleCreateTrainProxy(event: messages.GridworldCreateTrainProxy) {
+		this.logger.info(`[gridworld] create_train_proxy received: destination="${event.destination}" edgeId=${event.edgeId} offset=${event.offset}`);
+		const json = lib.escapeString(JSON.stringify({
+			destination: event.destination,
+			edge_id: event.edgeId,
+			offset: event.offset,
+		}));
+		await this.sendRcon(`/sc train_path_manager.create_train_proxy('${json}')`);
+	}
+
+	async handleForwardClearTrainPath(event: messages.GridworldForwardClearTrainPath) {
+		const json = lib.escapeString(JSON.stringify({ id: event.id }));
+		await this.sendRcon(`/sc train_path_manager.clear_train_path_request('${json}')`);
 	}
 
 	async handleForwardTrainPath(event: messages.GridworldForwardTrainPath) {

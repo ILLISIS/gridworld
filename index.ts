@@ -133,6 +133,11 @@ export const plugin: lib.PluginDeclaration = {
 		messages.GridworldSyncUeStops,
 		messages.GridworldApplyUeStops,
 		messages.GridworldSyncDaytime,
+		messages.GridworldCreateTrainProxy,
+		messages.GridworldClearTrainPath,
+		messages.GridworldForwardClearTrainPath,
+		messages.GridworldRemoveTrainProxy,
+		messages.GridworldForwardRemoveTrainProxy,
 	],
 
 	webEntrypoint: "./web",

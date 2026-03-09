@@ -76,6 +76,21 @@ function deepClone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Rotate a 2D vector by a Factorio 16-direction value (0/4/8/12). */
+function vec2Rot(a: [number, number], dir: number): [number, number] {
+	if (dir === 0) return [a[0], a[1]];
+	if (dir === 4) return [-a[1], a[0]];
+	if (dir === 8) return [-a[0], -a[1]];
+	if (dir === 12) return [a[1], -a[0]];
+	throw new Error(`Invalid direction: ${dir}`);
+}
+
+/** Convert edge-local coordinates to world coordinates. */
+function edgePosToWorld(edgePos: [number, number], origin: [number, number], direction: number): [number, number] {
+	const rotated = vec2Rot(edgePos, direction);
+	return [origin[0] + rotated[0], origin[1] + rotated[1]];
+}
+
 async function loadTiles(
 	config: lib.ControllerConfig,
 	logger: lib.Logger,
@@ -150,6 +165,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	private timeEpoch: TimeEpoch = { epochMs: Date.now(), epochDaytime: 0 };
 	private timeEpochDirty = false;
 	private timeSyncInterval: ReturnType<typeof setInterval> | null = null;
+	private pendingTrainPathDestinations = new Map<string, string>();
 
 	async init() {
 		this.controller.handle(messages.GridworldStateRequest, this.handleGridworldStateRequest.bind(this));
@@ -159,6 +175,8 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.controller.handle(messages.GridworldSyncUeStops, this.handleGridworldSyncUeStops.bind(this));
 		this.controller.handle(messages.GridworldRequestTrainPath, this.handleGridworldRequestTrainPath.bind(this));
 		this.controller.handle(messages.GridworldReturnTrainPathResult, this.handleGridworldReturnTrainPathResult.bind(this));
+		this.controller.handle(messages.GridworldClearTrainPath, this.handleGridworldClearTrainPath.bind(this));
+		this.controller.handle(messages.GridworldRemoveTrainProxy, this.handleGridworldRemoveTrainProxy.bind(this));
 		this.controller.subscriptions.handle(messages.GridworldStateUpdate, this.handleGridworldStateSubscription.bind(this));
 
 		this.tiles = await loadTiles(this.controller.config, this.logger);
@@ -751,6 +769,14 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			);
 		}
 
+		try {
+			await this.generateTileChunks(tile);
+		} catch (err: any) {
+			this.logger.warn(
+				`Failed generating chunks for tile ${tile.x},${tile.y}: ${err?.message ?? err}`,
+			);
+		}
+
 		await this.syncTileAreasToPathworld([tile]);
 	}
 
@@ -802,6 +828,23 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		const x = tile.x * tileSize;
 		const y = tile.y * tileSize;
 		const command = `/c local force=game.forces.player; local surface=game.surfaces["${escapedSurface}"]; if force and surface then force.set_spawn_position({x=${x}, y=${y}}, surface) end`;
+		await this.controller.sendTo(
+			{ instanceId: tile.instanceId },
+			new lib.InstanceSendRconRequest(command),
+		);
+	}
+
+	private async generateTileChunks(tile: TileRecord) {
+		const tileSize = this.controller.config.get("gridworld.tile_size");
+		const surface = this.controller.config.get("gridworld.surface_name");
+		const escapedSurface = lib.escapeString(surface);
+		const half = tileSize / 2;
+		const margin = 128; // 4 chunks
+		const minX = tile.x * tileSize - half - margin;
+		const maxX = tile.x * tileSize + half + margin;
+		const minY = tile.y * tileSize - half - margin;
+		const maxY = tile.y * tileSize + half + margin;
+		const command = `/c local s=game.surfaces["${escapedSurface}"]; if not s then return end; local cs=32; for cx=math.floor(${minX}/cs),math.floor((${maxX}-1)/cs) do for cy=math.floor(${minY}/cs),math.floor((${maxY}-1)/cs) do s.request_to_generate_chunks({x=cx*cs,y=cy*cs},0) end end; s.force_generate_chunk_requests()`;
 		await this.controller.sendTo(
 			{ instanceId: tile.instanceId },
 			new lib.InstanceSendRconRequest(command),
@@ -921,14 +964,85 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		if (!pathworldInstance || pathworldInstance.status !== "running") {
 			return;
 		}
+
+		// Recompute stop positions so they sit just inside the edge border
+		// on the pathworld.  On the tile instance the stops live at
+		// edge_pos {edge_x+2, -7}; on the pathworld we move them to
+		// {edge_x+2, -1} — one unit into the edge area, adjacent to the
+		// neighbor tile's first parking rail which IS synced.
+		const stops = this.computePathworldUeStopPositions(event.tileX, event.tileY, event.stops);
+
 		try {
 			await this.controller.sendTo(
 				{ instanceId: pathworldId },
-				new messages.GridworldApplyUeStops(event.tileX, event.tileY, event.stops),
+				new messages.GridworldApplyUeStops(event.tileX, event.tileY, stops),
 			);
 		} catch (err: any) {
 			this.logger.warn(`[gridworld] Failed to forward ue_stops to pathworld: ${err?.message ?? err}`);
 		}
+	}
+
+	/**
+	 * For each ue_source_trainstop, compute a position just inside the tile
+	 * border using the edge definition.  Falls back to the original tile
+	 * position when edge data is unavailable.
+	 */
+	private computePathworldUeStopPositions(
+		tileX: number,
+		tileY: number,
+		stops: messages.UeStop[],
+	): messages.UeStop[] {
+		const ue = this.getUniversalEdgesController();
+		if (!ue?.edgeDatastore) {
+			return stops;
+		}
+		const tile = this.tiles.get(tileKey(tileX, tileY));
+		if (!tile) {
+			return stops;
+		}
+
+		return stops.map(stop => {
+			if (!stop.stopName) {
+				return stop;
+			}
+			const parts = stop.stopName.split(" ");
+			if (parts.length < 2) {
+				return stop;
+			}
+			const edgeId = parts[0];
+			const offset = Number(parts[1]);
+			if (!Number.isFinite(offset)) {
+				return stop;
+			}
+			const edge = ue.edgeDatastore!.get(edgeId);
+			if (!edge) {
+				return stop;
+			}
+
+			// Determine which side of the edge this tile is on
+			const side: EdgeTargetSpec = (edge.source.instanceId === tile.instanceId)
+				? edge.source
+				: edge.target;
+			const edgeX = side.direction >= 8 ? edge.length - offset : offset;
+
+			// Place the stop at edge_pos {edgeX + 2, -1}: one unit into the
+			// edge area (just past the tile border), adjacent to the neighbor
+			// tile's first synced parking rail at that offset.
+			const [worldX, worldY] = edgePosToWorld([edgeX + 2, -1], side.origin as [number, number], side.direction);
+
+			this.logger.info(
+				`[gridworld] ue_stop reposition: ${stop.stopName} tile=${tileX},${tileY}`
+				+ ` edge=${edgeId} offset=${offset} edgeX=${edgeX}`
+				+ ` origin=[${side.origin}] dir=${side.direction}`
+				+ ` old=(${stop.x},${stop.y}) new=(${worldX},${worldY})`,
+			);
+
+			return {
+				...stop,
+				x: worldX,
+				y: worldY,
+			};
+		});
 	}
 
 	private async handleGridworldSyncRailEntities(event: messages.GridworldSyncRailEntities) {
@@ -957,7 +1071,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 	}
 
-	private async handleGridworldRequestTrainPath(event: messages.GridworldRequestTrainPath) {
+	private async handleGridworldRequestTrainPath(event: messages.GridworldRequestTrainPath, source: lib.Address) {
 		const pathworldId = this.getPathworldInstanceId();
 		if (pathworldId === undefined) {
 			this.logger.warn("[gridworld] request_train_path: no pathworld instance found");
@@ -977,12 +1091,57 @@ export class ControllerPlugin extends BaseControllerPlugin {
 					event.position,
 					event.direction,
 					event.destination,
-					event.sourceInstanceId,
+					source.id,
 				),
 			);
-			this.logger.info(`[gridworld] request_train_path forwarded: train=${event.id} destination=${event.destination} sourceInstance=${event.sourceInstanceId} pathworld=${pathworldId}`);
+			this.logger.info(`[gridworld] request_train_path forwarded: train=${event.id} destination=${event.destination} sourceInstance=${source.id} pathworld=${pathworldId}`);
+			this.pendingTrainPathDestinations.set(`${source.id}:${event.id}`, event.destination);
 		} catch (err: any) {
 			this.logger.warn(`[gridworld] Failed to forward train path request to pathworld: ${err?.message ?? err}`);
+		}
+	}
+
+	private async handleGridworldClearTrainPath(event: messages.GridworldClearTrainPath, source: lib.Address) {
+		// Remove pending proxy creation for this train
+		const pendingKey = `${source.id}:${event.id}`;
+		this.pendingTrainPathDestinations.delete(pendingKey);
+
+		// Forward to pathworld to clear any queued request
+		const pathworldId = this.getPathworldInstanceId();
+		if (pathworldId === undefined) return;
+		const pathworldInstance = this.controller.instances.get(pathworldId);
+		if (!pathworldInstance || pathworldInstance.status !== "running") return;
+		try {
+			await this.controller.sendTo(
+				{ instanceId: pathworldId },
+				new messages.GridworldForwardClearTrainPath(event.id),
+			);
+		} catch (err: any) {
+			this.logger.warn(`[gridworld] Failed to forward clear_train_path to pathworld: ${err?.message ?? err}`);
+		}
+	}
+
+	private async handleGridworldRemoveTrainProxy(event: messages.GridworldRemoveTrainProxy, source: lib.Address) {
+		const ue = this.getUniversalEdgesController();
+		if (!ue?.edgeDatastore) return;
+
+		const edgeId = event.lastEdgeStop.split(" ")[0];
+		const edge = ue.edgeDatastore.get(edgeId);
+		if (!edge) return;
+		const destinationInstanceId = (edge.source.instanceId === source.id)
+			? edge.target.instanceId
+			: edge.source.instanceId;
+
+		const destInstance = this.controller.instances.get(destinationInstanceId);
+		if (!destInstance || destInstance.status !== "running") return;
+
+		try {
+			await this.controller.sendTo(
+				{ instanceId: destinationInstanceId },
+				new messages.GridworldForwardRemoveTrainProxy(event.destination),
+			);
+		} catch (err: any) {
+			this.logger.warn(`[gridworld] Failed to forward remove_train_proxy: ${err?.message ?? err}`);
 		}
 	}
 
@@ -1004,6 +1163,53 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			this.logger.info(`[gridworld] return_train_path forwarded: train=${event.id} to instance=${event.sourceInstanceId}`);
 		} catch (err: any) {
 			this.logger.warn(`[gridworld] Failed to forward train path result to instance ${event.sourceInstanceId}: ${err?.message ?? err}`);
+		}
+
+		// Send proxy train creation to the destination instance
+		const pendingKey = `${event.sourceInstanceId}:${event.id}`;
+		const destination = this.pendingTrainPathDestinations.get(pendingKey);
+		this.pendingTrainPathDestinations.delete(pendingKey);
+		if (!destination || event.path.length === 0) {
+			return;
+		}
+
+		// Resolve destination instance by walking the path edges
+		const ue = this.getUniversalEdgesController();
+		if (!ue?.edgeDatastore) {
+			return;
+		}
+		let currentInstanceId = event.sourceInstanceId;
+		for (const stopName of event.path) {
+			const edgeId = stopName.split(" ")[0];
+			const edge = ue.edgeDatastore.get(edgeId);
+			if (!edge) {
+				continue;
+			}
+			currentInstanceId = (edge.source.instanceId === currentInstanceId)
+				? edge.target.instanceId
+				: edge.source.instanceId;
+		}
+		const destinationInstanceId = currentInstanceId;
+
+		// Parse edge ID and offset from the last path entry
+		const lastStop = event.path[event.path.length - 1];
+		const lastEdgeId = lastStop.split(" ")[0];
+		const lastOffset = Number(lastStop.split(" ")[1]);
+
+		const destInstance = this.controller.instances.get(destinationInstanceId);
+		if (!destInstance || destInstance.status !== "running") {
+			this.logger.warn(`[gridworld] create_train_proxy: destination instance ${destinationInstanceId} not available`);
+			return;
+		}
+
+		try {
+			await this.controller.sendTo(
+				{ instanceId: destinationInstanceId },
+				new messages.GridworldCreateTrainProxy(destination, lastEdgeId, lastOffset),
+			);
+			this.logger.info(`[gridworld] create_train_proxy sent: destination="${destination}" edgeId=${lastEdgeId} offset=${lastOffset} instance=${destinationInstanceId}`);
+		} catch (err: any) {
+			this.logger.warn(`[gridworld] Failed to send create_train_proxy: ${err?.message ?? err}`);
 		}
 	}
 

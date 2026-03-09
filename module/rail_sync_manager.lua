@@ -9,11 +9,15 @@ rail_sync_manager.RAIL_TYPES = {
     ["half-diagonal-rail"] = true,
     ["legacy-straight-rail"] = true,
     ["legacy-curved-rail"] = true,
+	["elevated-straight-rail"] = true,
+    ["elevated-curved-rail-a"] = true,
+    ["elevated-curved-rail-b"] = true,
+    ["elevated-half-diagonal-rail"] = true,
+    ["rail-ramp"] = true,
     ["rail-signal"] = true,
     ["rail-chain-signal"] = true,
     ["train-stop"] = true,
 	["locomotive"] = true,
-    -- todo: add elevated_rail entities
 }
 
 -- UE source train-stop names that sit outside tile bounds and must not be

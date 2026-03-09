@@ -18,7 +18,11 @@ local function ensure_storage()
 			bounds = nil,
 			is_pathworld = false,
 			train_path_requests = {},
+			train_proxies = {},
 		}
+	end
+	if not storage.gridworld.train_proxies then
+		storage.gridworld.train_proxies = {}
 	end
 end
 
@@ -135,6 +139,16 @@ end
 
 gridworld.events[defines.events.on_train_changed_state] = function(event)
 	train_path_manager.on_train_changed_state(event)
+end
+
+gridworld.events[defines.events.on_train_schedule_changed] = function(event)
+	train_path_manager.on_train_schedule_changed(event)
+end
+
+gridworld.on_nth_tick[300] = function()
+	if clusterio_api.get_instance_name() == "pathworld" then
+		train_path_manager.process_path_queue()
+	end
 end
 
 gridworld.on_nth_tick[900] = function()
