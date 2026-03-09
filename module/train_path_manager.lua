@@ -30,7 +30,7 @@ function tpm.on_train_changed_state(event)
     local old_state = event.old_state
     local LuaTrain = event.train
     local new_state = LuaTrain.state
-    game.print("old_state: " .. TRAIN_STATE_NAMES[old_state] .. ", new_state: " .. TRAIN_STATE_NAMES[new_state])
+    -- game.print("old_state: " .. TRAIN_STATE_NAMES[old_state] .. ", new_state: " .. TRAIN_STATE_NAMES[new_state])
     if new_state == defines.train_state.manual_control then
         -- clean up pending path request if one exists
         local train_id = LuaTrain.front_stock.unit_number
