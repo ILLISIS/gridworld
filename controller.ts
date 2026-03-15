@@ -690,10 +690,26 @@ export class ControllerPlugin extends BaseControllerPlugin {
 	}
 
 	private async startInstanceIfNeeded(tile: TileRecord, reason: string, mapSettingsOverride?: ParsedMapSettings) {
-		const instance = this.controller.instances.get(tile.instanceId);
+		let instance = this.controller.instances.get(tile.instanceId);
 		if (!instance) {
-			this.logger.warn(`Missing instance ${tile.instanceId} for tile ${tile.x},${tile.y}`);
-			return;
+			this.logger.warn(`Instance ${tile.instanceId} missing for tile ${tile.x},${tile.y}, creating new instance`);
+			const instanceName = `gridworld_${tile.x}_${tile.y}`;
+			const instanceConfig = new lib.InstanceConfig("controller");
+			instanceConfig.set("instance.name", instanceName, "controller");
+			instanceConfig.set("instance.auto_start", false, "controller");
+			this.setInstanceConfigForTile(instanceConfig, tile.x, tile.y);
+			await this.controller.instanceCreate(instanceConfig);
+			const newInstanceId = instanceConfig.get("instance.id");
+			this.tilesByInstance.delete(tile.instanceId);
+			tile.instanceId = newInstanceId;
+			this.tilesByInstance.set(newInstanceId, tile);
+			this.storageDirty = true;
+			instance = this.controller.instances.get(newInstanceId);
+			if (!instance) {
+				this.logger.error(`Failed to recreate instance for tile ${tile.x},${tile.y}`);
+				return;
+			}
+			await this.ensureEdgesForTile(tile);
 		}
 
 		if (instance.status === "running" || instance.status === "starting" || instance.status === "creating_save") {
