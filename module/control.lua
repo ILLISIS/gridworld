@@ -2,6 +2,7 @@ local clusterio_api = require("modules/clusterio/api")
 local rail_sync_manager = require("modules/gridworld/rail_sync_manager")
 local train_path_manager = require("modules/gridworld/train_path_manager")
 local time_sync_manager = require("modules/gridworld/time_sync_manager")
+local ue_hooks = require("modules/universal_edges/universal_serializer/hooks")
 
 local gridworld = {
 	events = {},
@@ -225,5 +226,51 @@ gridworld.events[defines.events.on_chunk_generated] = function(event)
 		end
 	end
 end
+
+-- Serialization hooks for universal_edges train transfer
+
+-- Remove the current schedule record if it matches the source trainstop we're departing from
+ue_hooks.register("LuaTrain", "post_serialize", function(train_data, context)
+	local edge = context.edge
+	local offset = context.offset
+	local train = context.train
+
+	if edge and offset and train_data.schedule and train_data.schedule.records then
+		local stop_name = edge.id .. " " .. offset
+		local record = train_data.schedule.records[train_data.schedule.current]
+		if record and record.station and record.station == stop_name then
+			local new_schedule = table.deepcopy(train_data.schedule)
+			table.remove(new_schedule.records, new_schedule.current)
+			train_data.schedule = new_schedule
+			log("Modified schedule - current: " .. new_schedule.current .. " records: " .. serpent.block(new_schedule.records))
+		end
+	end
+	return train_data
+end)
+
+-- Destroy train pathing proxy for the arriving train's destination
+ue_hooks.register("LuaTrainComplete", "post_deserialize", function(train_data, context)
+	local first_locomotive = context.first_locomotive
+	local proxies = storage.gridworld and storage.gridworld.train_proxies
+	if not proxies then return end
+
+	local schedule = first_locomotive and first_locomotive.valid
+		and first_locomotive.train and first_locomotive.train.schedule
+	if not schedule then return end
+
+	local record = schedule.records and schedule.records[schedule.current]
+	local destination = record and record.station
+	if not destination or not proxies[destination] or #proxies[destination] == 0 then return end
+
+	local loco = table.remove(proxies[destination])
+	if loco and loco.valid then
+		loco.destroy()
+	else
+		log("Failed to destroy train proxy for destination " .. destination .. " - invalid entity")
+	end
+	if #proxies[destination] == 0 then
+		proxies[destination] = nil
+	end
+end)
 
 return gridworld
