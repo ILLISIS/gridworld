@@ -177,6 +177,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.controller.handle(messages.GridworldReturnTrainPathResult, this.handleGridworldReturnTrainPathResult.bind(this));
 		this.controller.handle(messages.GridworldClearTrainPath, this.handleGridworldClearTrainPath.bind(this));
 		this.controller.handle(messages.GridworldRemoveTrainProxy, this.handleGridworldRemoveTrainProxy.bind(this));
+		this.controller.handle(messages.GridworldCornerTeleportPlayer, this.handleCornerTeleportPlayer.bind(this));
 		this.controller.subscriptions.handle(messages.GridworldStateUpdate, this.handleGridworldStateSubscription.bind(this));
 
 		this.tiles = await loadTiles(this.controller.config, this.logger);
@@ -202,7 +203,6 @@ export class ControllerPlugin extends BaseControllerPlugin {
 
 	async onInstanceStatusChanged(instance: InstanceInfo, prev?: lib.InstanceStatus) {
 		if (instance.status === "running" && prev !== "running") {
-			// Skip pathworld — it doesn't need daytime sync
 			if (instance.config.get("instance.name") === "pathworld") {
 				return;
 			}
@@ -212,6 +212,11 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				this.logger.warn(
 					`Failed sending startup daytime to instance ${instance.id}: ${err?.message ?? err}`,
 				);
+			}
+			// Send corner neighbor info for diagonal entity transport
+			const tile = this.tilesByInstance.get(instance.id);
+			if (tile) {
+				await this.sendCornerNeighbors(tile);
 			}
 		}
 	}
@@ -419,6 +424,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		this.tilesByInstance.set(instanceId, tile);
 		this.storageDirty = true;
 		this.markStateDirty();
+		await this.updateCornerNeighborsForNewTile(tile);
 		this.logger.info(`Created tile ${x},${y} for instance ${instanceId} (${reason})`);
 		return tile;
 	}
@@ -512,6 +518,67 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				await this.ensureEdgeBetween(tile, neighbor);
 			}
 		}
+	}
+
+	private computeCornerNeighbors(tile: TileRecord): { ne?: number; se?: number; sw?: number; nw?: number } {
+		const ne = this.tiles.get(tileKey(tile.x + 1, tile.y - 1));
+		const se = this.tiles.get(tileKey(tile.x + 1, tile.y + 1));
+		const sw = this.tiles.get(tileKey(tile.x - 1, tile.y + 1));
+		const nw = this.tiles.get(tileKey(tile.x - 1, tile.y - 1));
+		return {
+			ne: ne?.instanceId,
+			se: se?.instanceId,
+			sw: sw?.instanceId,
+			nw: nw?.instanceId,
+		};
+	}
+
+	private async sendCornerNeighbors(tile: TileRecord) {
+		const neighbors = this.computeCornerNeighbors(tile);
+		const instance = this.controller.instances.get(tile.instanceId);
+		if (!instance || instance.status !== "running") {
+			return;
+		}
+		try {
+			await this.controller.sendTo({ instanceId: tile.instanceId }, new messages.GridworldCornerNeighbors(neighbors));
+		} catch (err: any) {
+			this.logger.warn(`Failed to send corner neighbors to tile ${tile.x},${tile.y}: ${err?.message ?? err}`);
+		}
+	}
+
+	private async updateCornerNeighborsForNewTile(tile: TileRecord) {
+		await this.sendCornerNeighbors(tile);
+		const DIAGONAL_DELTAS = [
+			{ dx: -1, dy: -1 }, { dx: 1, dy: -1 },
+			{ dx: -1, dy: 1 }, { dx: 1, dy: 1 },
+		];
+		for (const delta of DIAGONAL_DELTAS) {
+			const diag = this.tiles.get(tileKey(tile.x + delta.dx, tile.y + delta.dy));
+			if (diag) {
+				await this.sendCornerNeighbors(diag);
+			}
+		}
+	}
+
+	async handleCornerTeleportPlayer({ playerName, instanceId }: messages.GridworldCornerTeleportPlayer) {
+		const instance = this.controller.instances.get(instanceId);
+		if (!instance) {
+			throw new lib.ResponseError(`Instance ${instanceId} not found for corner teleport`);
+		}
+		const hostId = instance.config.get("instance.assigned_host");
+		if (!hostId) {
+			throw new lib.ResponseError(`Instance ${instanceId} has no assigned host`);
+		}
+		const host = this.controller.hosts.get(hostId);
+		if (!host) {
+			throw new lib.ResponseError(`Host ${hostId} not found for instance ${instanceId}`);
+		}
+		if (!host.publicAddress) {
+			throw new lib.ResponseError(`Host ${hostId} has no public address configured`);
+		}
+		const address = `${host.publicAddress}:${instance.gamePort || instance.config.get("factorio.game_port")}`;
+		this.logger.info(`Corner teleporting ${playerName} to ${address} (instance ${instanceId})`);
+		return { address };
 	}
 
 	private async ensureEdgeBetween(tile: TileRecord, neighbor: TileRecord) {

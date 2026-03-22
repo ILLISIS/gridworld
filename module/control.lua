@@ -2,6 +2,8 @@ local clusterio_api = require("modules/clusterio/api")
 local rail_sync_manager = require("modules/gridworld/rail_sync_manager")
 local train_path_manager = require("modules/gridworld/train_path_manager")
 local time_sync_manager = require("modules/gridworld/time_sync_manager")
+local corner_scanner = require("modules/gridworld/corner_scanner")
+local universal_serializer = require("modules/universal_edges/universal_serializer/universal_serializer")
 local ue_hooks = require("modules/universal_edges/universal_serializer/hooks")
 
 local gridworld = {
@@ -24,6 +26,21 @@ local function ensure_storage()
 	end
 	if not storage.gridworld.train_proxies then
 		storage.gridworld.train_proxies = {}
+	end
+	if not storage.gridworld.corner_neighbors then
+		storage.gridworld.corner_neighbors = {}
+	end
+	if not storage.gridworld.players_waiting_to_leave_diagonal then
+		storage.gridworld.players_waiting_to_leave_diagonal = {}
+	end
+	if not storage.gridworld.players_waiting_to_join_diagonal then
+		storage.gridworld.players_waiting_to_join_diagonal = {}
+	end
+	if not storage.gridworld.diagonal_vehicle_drivers then
+		storage.gridworld.diagonal_vehicle_drivers = {}
+	end
+	if not storage.gridworld.diagonal_vehicle_passengers then
+		storage.gridworld.diagonal_vehicle_passengers = {}
 	end
 end
 
@@ -60,6 +77,61 @@ function gridworld.set_pathworld()
 	ensure_storage()
 	storage.gridworld.is_pathworld = true
 	log("[gridworld] this instance is pathworld; on_chunk_generated will clear entities and decoratives")
+end
+
+---@param json string
+function gridworld.set_corner_neighbors(json)
+	ensure_storage()
+	local data = helpers.json_to_table(json)
+	if data then
+		storage.gridworld.corner_neighbors = data
+	end
+end
+
+---@param player_name string
+---@param address string
+function gridworld.corner_teleport_response(player_name, address)
+	if player_name == nil or address == nil then return end
+	local player = game.players[player_name]
+	if player == nil then
+		log("[gridworld] Corner teleport failed: Player " .. player_name .. " not found")
+		return
+	end
+	player.connect_to_server({
+		address = address,
+		name = "Diagonal transfer",
+		description = "Connect to diagonal server",
+	})
+end
+
+---@param json string
+function gridworld.receive_diagonal_entity(json)
+	ensure_storage()
+	local data = helpers.json_to_table(json)
+	if data == nil then return end
+	local entity_transfers = data.entity_transfers
+	if entity_transfers == nil then return end
+
+	for _, transfer in ipairs(entity_transfers) do
+		if transfer.type == "player" then
+			storage.gridworld.players_waiting_to_join_diagonal[transfer.player_name] = {
+				world_position = transfer.world_position,
+			}
+		elseif transfer.type == "vehicle" then
+			-- Fix position format after JSON round-trip (Lua arrays become {"1":x,"2":y})
+			local pos = transfer.serialized_entity.position
+			if pos then
+				transfer.serialized_entity.position = { x = pos[1] or pos["1"], y = pos[2] or pos["2"] }
+			end
+			local entity = universal_serializer.LuaEntity.deserialize(transfer.serialized_entity)
+			if transfer.driver_name and entity and entity.valid then
+				storage.gridworld.diagonal_vehicle_drivers[transfer.driver_name] = entity
+			end
+			if transfer.passenger_name and entity and entity.valid then
+				storage.gridworld.diagonal_vehicle_passengers[transfer.passenger_name] = entity
+			end
+		end
+	end
 end
 
 --- Called on the pathworld instance via RCON to generate and chart chunks
@@ -136,6 +208,20 @@ end
 gridworld.events[clusterio_api.events.on_server_startup] = function(_event)
 	ensure_storage()
 	update_bounds()
+end
+
+gridworld.on_nth_tick[90] = function()
+	corner_scanner.poll_corners()
+end
+
+gridworld.events[defines.events.on_player_joined_game] = function(event)
+	ensure_storage()
+	corner_scanner.on_player_joined_game(event)
+end
+
+gridworld.events[defines.events.on_player_left_game] = function(event)
+	ensure_storage()
+	corner_scanner.on_player_left_game(event)
 end
 
 gridworld.events[defines.events.on_train_changed_state] = function(event)

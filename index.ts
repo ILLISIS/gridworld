@@ -138,6 +138,9 @@ export const plugin: lib.PluginDeclaration = {
 		messages.GridworldForwardClearTrainPath,
 		messages.GridworldRemoveTrainProxy,
 		messages.GridworldForwardRemoveTrainProxy,
+		messages.GridworldCornerNeighbors,
+		messages.GridworldCornerTeleportPlayer,
+		messages.GridworldDiagonalEntityTransfer,
 	],
 
 	webEntrypoint: "./web",
