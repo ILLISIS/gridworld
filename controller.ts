@@ -1113,13 +1113,6 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			// tile's first synced parking rail at that offset.
 			const [worldX, worldY] = edgePosToWorld([edgeX + 2, -1], side.origin as [number, number], side.direction);
 
-			this.logger.info(
-				`[gridworld] ue_stop reposition: ${stop.stopName} tile=${tileX},${tileY}`
-				+ ` edge=${edgeId} offset=${offset} edgeX=${edgeX}`
-				+ ` origin=[${side.origin}] dir=${side.direction}`
-				+ ` old=(${stop.x},${stop.y}) new=(${worldX},${worldY})`,
-			);
-
 			return {
 				...stop,
 				x: worldX,
