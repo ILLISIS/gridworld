@@ -79,6 +79,7 @@ end
 function rail_sync_manager.collect_and_send_ue_stops()
 	local config = storage.gridworld
 	if config == nil or config.is_pathworld then return end
+	if config.tile_x == nil or config.tile_y == nil then return end
 
 	local results = {}
 	for _, surface in pairs(game.surfaces) do
