@@ -31,6 +31,8 @@ function corner_scanner.poll_corners()
 		return
 	end
 
+	local found_players = {}
+
 	for corner_name, corner_def in pairs(CORNERS) do
 		local neighbor_id = config.corner_neighbors[corner_name]
 		if neighbor_id then
@@ -42,8 +44,30 @@ function corner_scanner.poll_corners()
 			for _, entity in ipairs(entities) do
 				if entity.valid then
 					corner_scanner.handle_corner_entity(entity, corner_name)
+					if entity.type == "character" then
+						if entity.player then
+							found_players[entity.player.name] = true
+						end
+					elseif entity.type == "spider-vehicle" or entity.type == "car" then
+						local driver = entity.get_driver()
+						if driver and driver.player then
+							found_players[driver.player.name] = true
+						end
+						local passenger = entity.get_passenger()
+						if passenger and passenger.player then
+							found_players[passenger.player.name] = true
+						end
+					end
 				end
 			end
+		end
+	end
+
+	-- Clear waiting entries for players no longer in any corner zone
+	local waiting = storage.gridworld.players_waiting_to_leave_diagonal
+	for name, _ in pairs(waiting) do
+		if not found_players[name] then
+			waiting[name] = nil
 		end
 	end
 end
