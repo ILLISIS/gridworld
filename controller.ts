@@ -29,6 +29,7 @@ type EdgeTargetSpec = {
 
 type UniversalEdgesController = {
 	edgeDatastore?: Map<string, any>;
+	storageDirty?: boolean;
 	handleSetEdgeConfigRequest?: (request: { edge: any }) => Promise<void> | void;
 };
 
@@ -1559,7 +1560,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 
 	private async removeEdgesForTiles(tiles: TileRecord[]) {
 		const ue = this.getUniversalEdgesController();
-		if (!ue?.handleSetEdgeConfigRequest || !ue.edgeDatastore) {
+		if (!ue?.edgeDatastore) {
 			return;
 		}
 
@@ -1575,17 +1576,10 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 
 		for (const edgeId of edgeIds) {
-			const edge = ue.edgeDatastore.get(edgeId);
-			if (!edge || edge.isDeleted) {
-				continue;
+			if (ue.edgeDatastore.has(edgeId)) {
+				ue.edgeDatastore.delete(edgeId);
+				ue.storageDirty = true;
 			}
-			await ue.handleSetEdgeConfigRequest({
-				edge: {
-					...edge,
-					isDeleted: true,
-					updatedAtMs: Date.now(),
-				},
-			});
 		}
 	}
 }
