@@ -65,8 +65,6 @@ end
 
 ---@param LuaTrain LuaTrain
 function tpm.request_train_path(LuaTrain)
-    log("tpm:request_train_path")
-
     -- Implementation for requesting a train path
     -- skip if train is already in manual mode (e.g., request already in progress)
     if LuaTrain.manual_mode then return end
@@ -113,8 +111,6 @@ end
 
 -- called from rcon by the Clusterio Controller
 function tpm.apply_train_path_result(json)
-    log("tpm:apply_train_path_result")
-
     -- Implementation for applying a train path
     -- convert json
     local path_result = helpers.json_to_table(json)
@@ -240,8 +236,6 @@ end
 
 -- called from rcon by the Clusterio Controller
 function tpm.find_train_path(json)
-    log("tpm:find_train_path")
-
     -- Implementation for finding a train path
     -- convert json
     local path_request = helpers.json_to_table(json)
@@ -266,7 +260,6 @@ tpm.RAIL_TYPES = {
 
 ---@param path_request TrainPathRequest
 function tpm.process_path_request(path_request)
-    log("tpm:process_path_request id=" .. tostring(path_request.id))
     local path = {
         id = path_request.id,
         path = {},
@@ -369,8 +362,6 @@ end
 
 ---@param path table
 function tpm.return_train_path_result(path)
-    log("tpm:return_train_path_result")
-
     -- Implementation for returning a train path
     -- send result to controller
     clusterio_api.send_json("gridworld:return_train_path", path)
@@ -381,7 +372,6 @@ end
 --------------------------------------------------------------------------------------------------
 
 function tpm.queue_path_request(path_request)
-    log("tpm:queue_path_request id=" .. tostring(path_request.id))
     storage.gridworld.train_path_requests[path_request.id] = path_request
 end
 
@@ -398,7 +388,6 @@ end
 
 -- proxy train creation on destination when a path request is returned
 function tpm.create_train_proxy(json)
-    log("tpm:create_train_proxy")
     local data = helpers.json_to_table(json)
     if not data then return end
 
@@ -459,7 +448,6 @@ function tpm.create_train_proxy(json)
         storage.gridworld.train_proxies[destination] = {}
     end
     table.insert(storage.gridworld.train_proxies[destination], loco)
-    log("create_train_proxy: created proxy for station " .. destination)
 end
 
 -- called from rcon by the Clusterio Controller to cancel a pending path request
@@ -467,7 +455,6 @@ function tpm.clear_train_path_request(json)
     local data = helpers.json_to_table(json)
     if not data then return end
     storage.gridworld.train_path_requests[data.id] = nil
-    log("tpm:clear_train_path_request: cleared id=" .. tostring(data.id))
 end
 
 return tpm
