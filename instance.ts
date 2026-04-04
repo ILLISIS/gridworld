@@ -2,6 +2,15 @@ import * as lib from "@clusterio/lib";
 import { BaseInstancePlugin } from "@clusterio/host";
 import * as messages from "./messages";
 
+declare module "@clusterio/lib" {
+	export interface InstanceConfigFields {
+		"gridworld.tile_x": number;
+		"gridworld.tile_y": number;
+		"gridworld.tile_size": number;
+		"gridworld.surface_name": string;
+	}
+}
+
 type RailEntitiesIPC = {
 	tile_x: number;
 	tile_y: number;

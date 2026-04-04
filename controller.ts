@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 
 import * as lib from "@clusterio/lib";
-import { BaseControllerPlugin, type InstanceInfo } from "@clusterio/controller";
+import { BaseControllerPlugin, type InstanceRecord } from "@clusterio/controller";
 import * as messages from "./messages";
 
 type TileRecord = {
@@ -202,7 +202,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 	}
 
-	async onInstanceStatusChanged(instance: InstanceInfo, prev?: lib.InstanceStatus) {
+	async onInstanceStatusChanged(instance: InstanceRecord, prev?: lib.InstanceStatus) {
 		if (instance.status === "running" && prev !== "running") {
 			if (instance.config.get("instance.name") === "pathworld") {
 				return;
@@ -233,7 +233,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		}
 	}
 
-	async onPlayerEvent(instance: InstanceInfo, event: lib.PlayerEvent) {
+	async onPlayerEvent(instance: InstanceRecord, event: lib.PlayerEvent) {
 		if (event.type !== "join") {
 			return;
 		}
@@ -393,7 +393,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		instanceConfig.set("instance.auto_start", false, "controller");
 		this.setInstanceConfigForTile(instanceConfig, x, y);
 
-		await this.controller.instanceCreate(instanceConfig);
+		await this.controller.instances.createInstance(instanceConfig);
 		const instanceId = instanceConfig.get("instance.id");
 		const tile: TileRecord = {
 			x,
@@ -448,7 +448,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			return false;
 		}
 		try {
-			await this.controller.instanceAssign(tile.instanceId, resolvedHostId);
+			await this.controller.instances.assignInstance(tile.instanceId, resolvedHostId);
 			return true;
 		} catch (err: any) {
 			this.logger.error(`Failed to assign instance ${tile.instanceId}: ${err?.message ?? err}`);
@@ -766,7 +766,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			instanceConfig.set("instance.name", instanceName, "controller");
 			instanceConfig.set("instance.auto_start", false, "controller");
 			this.setInstanceConfigForTile(instanceConfig, tile.x, tile.y);
-			await this.controller.instanceCreate(instanceConfig);
+			await this.controller.instances.createInstance(instanceConfig);
 			const newInstanceId = instanceConfig.get("instance.id");
 			this.tilesByInstance.delete(tile.instanceId);
 			tile.instanceId = newInstanceId;
@@ -882,7 +882,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 
 		await this.stopInstanceBeforeDelete(tile.instanceId, `aborted tile ${tile.x},${tile.y}`);
 		try {
-			await this.controller.instanceDelete(tile.instanceId);
+			await this.controller.instances.deleteInstance(tile.instanceId);
 		} catch (err: any) {
 			this.logger.error(
 				`Failed deleting aborted tile instance ${tile.instanceId} (${tile.x},${tile.y}): ${err?.message ?? err}`,
@@ -1317,7 +1317,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		for (const tile of tiles) {
 			await this.stopInstanceBeforeDelete(tile.instanceId, `gridworld tile ${tile.x},${tile.y}`);
 			try {
-				await this.controller.instanceDelete(tile.instanceId);
+				await this.controller.instances.deleteInstance(tile.instanceId);
 				deletedInstanceIds.add(tile.instanceId);
 			} catch (err: any) {
 				this.logger.error(
@@ -1337,7 +1337,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			}
 			await this.stopInstanceBeforeDelete(instance.id, name);
 			try {
-				await this.controller.instanceDelete(instance.id);
+				await this.controller.instances.deleteInstance(instance.id);
 			} catch (err: any) {
 				this.logger.error(
 					`Failed deleting instance ${instance.id} (${name}): ${err?.message ?? err}`,
@@ -1426,15 +1426,15 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		instanceConfig.set("instance.auto_start", true, "controller");
 		// instanceConfig.set("factorio.settings", { public: false, lan: false }, "controller");
 
-		await this.controller.instanceCreate(instanceConfig);
+		await this.controller.instances.createInstance(instanceConfig);
 		const instanceId = instanceConfig.get("instance.id");
 
 		try {
-			await this.controller.instanceAssign(instanceId, hostId);
+			await this.controller.instances.assignInstance(instanceId, hostId);
 		} catch (err: any) {
 			this.logger.error(`Failed to assign pathworld instance ${instanceId}: ${err?.message ?? err}`);
 			try {
-				await this.controller.instanceDelete(instanceId);
+				await this.controller.instances.deleteInstance(instanceId);
 			} catch { /* ignore */ }
 			return;
 		}

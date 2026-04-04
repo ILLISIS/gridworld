@@ -328,7 +328,7 @@ ue_hooks.register("LuaTrain", "post_serialize", function(train_data, context)
 			local new_schedule = table.deepcopy(train_data.schedule)
 			table.remove(new_schedule.records, new_schedule.current)
 			train_data.schedule = new_schedule
-			log("Modified schedule - current: " .. new_schedule.current .. " records: " .. serpent.block(new_schedule.records))
+			-- log("Modified schedule - current: " .. new_schedule.current .. " records: " .. serpent.block(new_schedule.records))
 		end
 	end
 	return train_data
