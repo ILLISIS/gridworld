@@ -315,6 +315,19 @@ end
 
 -- Serialization hooks for universal_edges train transfer
 
+-- Clear pending train path request before a train is serialized for edge transfer
+ue_hooks.register("LuaTrainComplete", "pre_serialize", function(_data, context)
+	local LuaTrain = context.LuaTrain
+	if not LuaTrain or not LuaTrain.valid then return end
+	local train_id = LuaTrain.front_stock.unit_number
+	local pending = storage.gridworld and storage.gridworld.train_path_requests
+		and storage.gridworld.train_path_requests[train_id]
+	if not pending then return end
+	if pending.render and pending.render.valid then pending.render.destroy() end
+	storage.gridworld.train_path_requests[train_id] = nil
+	clusterio_api.send_json("gridworld:clear_train_path_request", { id = train_id })
+end)
+
 -- Remove the current schedule record if it matches the source trainstop we're departing from
 ue_hooks.register("LuaTrain", "post_serialize", function(train_data, context)
 	local edge = context.edge

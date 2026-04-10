@@ -23,6 +23,9 @@ local HANDLED_TRAIN_STATES = {
 function tpm.on_train_schedule_changed(event)
     local LuaTrain = event.train
     local train_id = LuaTrain.front_stock.unit_number
+    -- skip if we're applying a path result (we change the schedule ourselves)
+    if storage.gridworld._applying_path == train_id then return end
+    storage.gridworld.train_path_requests[train_id] = nil
     clusterio_api.send_json("gridworld:clear_train_path_request", { id = train_id })
 end
 
@@ -30,10 +33,20 @@ function tpm.on_train_changed_state(event)
     local old_state = event.old_state
     local LuaTrain = event.train
     local new_state = LuaTrain.state
-    -- game.print("old_state: " .. TRAIN_STATE_NAMES[old_state] .. ", new_state: " .. TRAIN_STATE_NAMES[new_state])
+    local train_id = LuaTrain.front_stock.unit_number
+    local is_spawning = storage.universal_edges.delayed_entities
+        and storage.universal_edges.delayed_entities[train_id]
+
+    -- Rule 1: ignore spawn-cycle transitions (UE carriage add/restore always goes through manual_control)
+    if is_spawning
+        and (old_state == defines.train_state.manual_control
+            or new_state == defines.train_state.manual_control)
+    then
+        return
+    end
+
+    -- Rule 2: manual mode (not spawning) — cleanup
     if new_state == defines.train_state.manual_control then
-        -- clean up pending path request if one exists
-        local train_id = LuaTrain.front_stock.unit_number
         local pending = storage.gridworld.train_path_requests[train_id]
         if pending then
             if pending.render and pending.render.valid then
@@ -42,23 +55,25 @@ function tpm.on_train_changed_state(event)
             storage.gridworld.train_path_requests[train_id] = nil
             clusterio_api.send_json("gridworld:clear_train_path_request", { id = train_id })
         end
-        -- notify destination to remove proxy before we clear the schedule
         tpm.notify_proxy_removal(LuaTrain)
-        -- remove edge temporary stops from train schedule
         tpm.remove_temporary_schedule_stops(LuaTrain)
         return
-    elseif old_state == defines.train_state.manual_control and new_state == defines.train_state.destination_full then
-        local schedule = LuaTrain.schedule
-        local current_record = schedule and schedule.records and schedule.records[schedule.current]
-        if current_record and current_record.temporary then return end
+    end
+
+    -- Rule 3: skip if current record is a temp edge waypoint we inserted
+    local schedule = LuaTrain.schedule
+    local current_record = schedule and schedule.records and schedule.records[schedule.current]
+    if current_record and current_record.temporary then return end
+
+    -- Rule 4: skip if request already pending or path already applied
+    if storage.gridworld.train_path_requests[train_id] then return end
+
+    -- Rules 5 & 6: request cross-tile path
+    if old_state == defines.train_state.manual_control
+        and new_state == defines.train_state.destination_full
+    then
         tpm.request_train_path(LuaTrain)
     elseif HANDLED_TRAIN_STATES[old_state] then
-        -- only request a new path when the train was previously waiting at a station
-        -- skip if the current schedule record is an edge waypoint we inserted;
-        -- allow interrupt temporary stops through so they can trigger re-pathing
-        local schedule = LuaTrain.schedule
-        local current_record = schedule and schedule.records and schedule.records[schedule.current]
-        if current_record and current_record.temporary then return end
         tpm.request_train_path(LuaTrain)
     end
 end
@@ -77,12 +92,11 @@ function tpm.request_train_path(LuaTrain)
     local train_id = front_stock.unit_number
     local front_end = LuaTrain.front_end
     if not front_end then return end
-    -- set manual mode first (triggers on_train_changed_state synchronously;
-    -- storage entry must not exist yet so the handler knows we initiated it)
-    -- LuaTrain.manual_mode = true
+    -- skip if a request is already in-flight for this train
+    if storage.gridworld.train_path_requests[train_id] then return end
     -- add request to globals
     storage.gridworld.train_path_requests[train_id] = {
-        LuaTrain = LuaTrain,
+        front_stock = LuaTrain.front_stock,
         is_pathing = true,
     }
     local rail_pos = front_end.rail.position
@@ -121,8 +135,14 @@ function tpm.apply_train_path_result(json)
         log("No pending train path request found for train id: " .. path_result.id)
         return
     end
-    local LuaTrain = storage.gridworld.train_path_requests[path_result.id].LuaTrain
     local pending = storage.gridworld.train_path_requests[path_result.id]
+    local front_stock = pending.front_stock
+    if not front_stock or not front_stock.valid then
+        if pending.render and pending.render.valid then pending.render.destroy() end
+        storage.gridworld.train_path_requests[path_result.id] = nil
+        return
+    end
+    local LuaTrain = front_stock.train
     if #path_result.path == 0 then
         -- no path found, re-enable train and let it retry naturally
         -- LuaTrain.manual_mode = false
@@ -159,12 +179,15 @@ function tpm.apply_train_path_result(json)
     end
     -- point to the first temporary stop so the train paths there
     schedule.current = insert_index
+    -- suppress on_train_schedule_changed from clearing the pending entry
+    storage.gridworld._applying_path = path_result.id
     LuaTrain.schedule = schedule
+    storage.gridworld._applying_path = nil
     LuaTrain.manual_mode = false
     -- remove train status text
     if pending.render and pending.render.valid then pending.render.destroy() end
-    -- remove train from storage flag
-    storage.gridworld.train_path_requests[path_result.id] = nil
+    -- keep pending entry so spawn-cycling and repeated state changes don't re-request;
+    -- cleared by manual_control cleanup (rule 2) or external schedule change
 end
 
 function tpm.remove_temporary_schedule_stops(LuaTrain)
@@ -241,6 +264,8 @@ function tpm.find_train_path(json)
     local path_request = helpers.json_to_table(json)
     if not path_request then return end
     assert(type(path_request) == "table")
+    -- clear any stale queued retry for this train before processing
+    storage.gridworld.train_path_requests[path_request.id] = nil
     tpm.process_path_request(path_request)
 end
 
@@ -341,15 +366,36 @@ function tpm.process_path_request(path_request)
     -- adjust_pathworld_station_limit
     local station = goals[result.goal_index].train_stop
     station.trains_limit = math.max(0, (station.trains_limit or 0) - 1)
-    -- iterate path for ue_source_trainstop
+    -- iterate path for ue_source_trainstop, drawing a line between each consecutive rail
     local seen = {}
+    local prev_rail = start_rail
     for _, rail in ipairs(result.path) do
         if rail.valid then
+            rendering.draw_line{
+                color = { r = 1, g = 0.8, b = 0, a = 0.7 },
+                width = 2,
+                from = prev_rail,
+                to = rail,
+                surface = surface,
+                time_to_live = ttl,
+                draw_on_ground = true,
+            }
+            prev_rail = rail
             for _, rail_dir in ipairs({ defines.rail_direction.front, defines.rail_direction.back }) do
                 local stop = rail.get_rail_segment_stop(rail_dir)
                 if stop and stop.valid and stop.name == "ue_source_trainstop" and not seen[stop.backer_name] then
                     seen[stop.backer_name] = true
                     table.insert(path.path, stop.backer_name)
+                    rendering.draw_circle{
+                        color = { r = 0, g = 0.6, b = 1, a = 0.9 },
+                        radius = 2,
+                        width = 3,
+                        filled = false,
+                        target = stop,
+                        surface = surface,
+                        time_to_live = ttl,
+                        draw_on_ground = true,
+                    }
                 end
             end
         end
