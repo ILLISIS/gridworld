@@ -1260,6 +1260,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			const edgeId = stopName.split(" ")[0];
 			const edge = ue.edgeDatastore.get(edgeId);
 			if (!edge) {
+				this.logger.warn(`[gridworld] create_train_proxy path walk: edge ${edgeId} not in datastore, skipping`);
 				continue;
 			}
 			currentInstanceId = (edge.source.instanceId === currentInstanceId)
@@ -1267,6 +1268,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 				: edge.source.instanceId;
 		}
 		const destinationInstanceId = currentInstanceId;
+		// this.logger.info(`[gridworld] create_train_proxy path walk: sourceInstance=${event.sourceInstanceId} hops=${event.path.length} destinationInstance=${destinationInstanceId}`);
 
 		// Parse edge ID and offset from the last path entry
 		const lastStop = event.path[event.path.length - 1];
