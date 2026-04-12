@@ -912,7 +912,7 @@ export class ControllerPlugin extends BaseControllerPlugin {
 		const escapedSurface = lib.escapeString(surface);
 		const x = tile.x * tileSize;
 		const y = tile.y * tileSize;
-		const command = `/c local force=game.forces.player; local surface=game.surfaces["${escapedSurface}"]; if force and surface then force.set_spawn_position({x=${x}, y=${y}}, surface) end`;
+		const command = `/sc local force=game.forces.player; local surface=game.surfaces["${escapedSurface}"]; if force and surface then force.set_spawn_position({x=${x}, y=${y}}, surface) end`;
 		await this.controller.sendTo(
 			{ instanceId: tile.instanceId },
 			new lib.InstanceSendRconRequest(command),
