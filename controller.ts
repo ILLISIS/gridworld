@@ -578,8 +578,9 @@ export class ControllerPlugin extends BaseControllerPlugin {
 			throw new lib.ResponseError(`Host ${hostId} has no public address configured`);
 		}
 		const address = `${host.publicAddress}:${instance.gamePort || instance.config.get("factorio.game_port")}`;
+		const name = instance.config.get("instance.name") as string;
 		this.logger.info(`Corner teleporting ${playerName} to ${address} (instance ${instanceId})`);
-		return { address };
+		return { address, name };
 	}
 
 	private async ensureEdgeBetween(tile: TileRecord, neighbor: TileRecord) {

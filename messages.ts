@@ -548,6 +548,7 @@ export class GridworldCornerTeleportPlayer {
 
 	static Response = plainJson(Type.Object({
 		address: Type.String(),
+		name: Type.String(),
 	}));
 }
 

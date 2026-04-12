@@ -328,13 +328,16 @@ export class InstancePlugin extends BaseInstancePlugin {
 			this.logger.warn(`No diagonal neighbor for corner ${data.corner}`);
 			return;
 		}
-		const { address } = await this.instance.sendTo(
+		const { address, name } = await this.instance.sendTo(
 			"controller",
 			new messages.GridworldCornerTeleportPlayer(data.player_name, targetInstanceId),
 		);
-		const escapedName = lib.escapeString(data.player_name);
+		const escapedPlayerName = lib.escapeString(data.player_name);
 		const escapedAddress = lib.escapeString(address);
-		await this.sendRcon(`/sc gridworld.corner_teleport_response("${escapedName}", "${escapedAddress}")`);
+		const escapedServerName = lib.escapeString(name);
+		const cornerNames: Record<string, string> = { ne: "northeast", se: "southeast", sw: "southwest", nw: "northwest" };
+		const escapedDirection = lib.escapeString(cornerNames[data.corner] || data.corner);
+		await this.sendRcon(`/sc gridworld.corner_teleport_response("${escapedPlayerName}", "${escapedAddress}", "${escapedServerName}", "${escapedDirection}")`);
 	}
 
 	private async handleCornerEntityTransferIpc(data: CornerEntityTransferIPC) {

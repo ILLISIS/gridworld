@@ -90,7 +90,9 @@ end
 
 ---@param player_name string
 ---@param address string
-function gridworld.corner_teleport_response(player_name, address)
+---@param server_name string|nil
+---@param direction string|nil
+function gridworld.corner_teleport_response(player_name, address, server_name, direction)
 	if player_name == nil or address == nil then return end
 	local player = game.players[player_name]
 	if player == nil then
@@ -99,8 +101,8 @@ function gridworld.corner_teleport_response(player_name, address)
 	end
 	player.connect_to_server({
 		address = address,
-		name = "Diagonal transfer",
-		description = "Connect to diagonal server",
+		name = (server_name or "unknown"),
+		description = "server to the " .. (direction or "unknown"),
 	})
 end
 
