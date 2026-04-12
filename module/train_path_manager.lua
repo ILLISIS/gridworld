@@ -63,7 +63,9 @@ function tpm.on_train_changed_state(event)
     -- Rule 3: skip if current record is a temp edge waypoint we inserted
     local schedule = LuaTrain.schedule
     local current_record = schedule and schedule.records and schedule.records[schedule.current]
-    if current_record and current_record.temporary then return end
+    local current_station = current_record and current_record.station
+    local is_gridworld_stop = current_station and string.find(current_station, "gridworld:", 1, true)
+    if current_record and current_record.temporary and is_gridworld_stop then return end
 
     -- Rule 4: skip if request already pending or path already applied
     if storage.gridworld.train_path_requests[train_id] then return end
