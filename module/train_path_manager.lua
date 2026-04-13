@@ -454,6 +454,10 @@ function tpm.create_train_proxy(json)
         log("[gridworld:tpm] create_train_proxy: train link not found at offset " .. tostring(offset) .. " for edge " .. tostring(edge_id))
         return
     end
+    if link.is_input then
+        log("[gridworld:tpm] create_train_proxy: refusing to create proxy at is_input link (offset " .. tostring(offset) .. " edge " .. tostring(edge_id) .. ") — proxy should only be created at destination (is_input=false) links")
+        return
+    end
     local rail = link.rails and link.rails[#link.rails - 1]
     if not rail or not rail.valid then
         log("[gridworld:tpm] create_train_proxy: no valid rail at offset " .. tostring(offset) .. " for edge " .. tostring(edge_id))
