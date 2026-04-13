@@ -133,8 +133,8 @@ function tpm.apply_train_path_result(json)
     if not path_result then return end
     -- apply the path to the train schedule
     if not storage.gridworld.train_path_requests[path_result.id] then
-        game.print("No pending train path request found for train id: " .. path_result.id)
-        log("No pending train path request found for train id: " .. path_result.id)
+        game.print("[gridworld:tpm] No pending train path request found for train id: " .. path_result.id)
+        log("[gridworld:tpm] No pending train path request found for train id: " .. path_result.id)
         return
     end
     local pending = storage.gridworld.train_path_requests[path_result.id]
@@ -295,8 +295,8 @@ function tpm.process_path_request(path_request)
     -- find stations
     local surface = game.surfaces[path_request.surface]
     if not surface then
-        game.print("Surface not found: " .. path_request.surface)
-        log("Surface not found: " .. path_request.surface)
+        game.print("[gridworld:tpm] Surface not found: " .. path_request.surface)
+        log("[gridworld:tpm] Surface not found: " .. path_request.surface)
         tpm.return_train_path_result(path) -- empty path
         return
     end
@@ -309,8 +309,8 @@ function tpm.process_path_request(path_request)
         end
     end
     if #goals == 0 then
-        game.print("No valid train stops found for destination: " .. path_request.destination)
-        log("No valid train stops found for destination: " .. path_request.destination)
+        game.print("[gridworld:tpm] No valid train stops found for destination: " .. path_request.destination)
+        log("[gridworld:tpm] No valid train stops found for destination: " .. path_request.destination)
         tpm.return_train_path_result(path) -- empty path
         return
     end
@@ -321,8 +321,8 @@ function tpm.process_path_request(path_request)
         radius = 2,
     }
     if #start_rails == 0 then
-        game.print("No starting rail found near position: " .. path_request.position.x .. ", " .. path_request.position.y)
-        log("No starting rail found near position: " .. path_request.position.x .. ", " .. path_request.position.y)
+        game.print("[gridworld:tpm] No starting rail found near position: " .. path_request.position.x .. ", " .. path_request.position.y)
+        log("[gridworld:tpm] No starting rail found near position: " .. path_request.position.x .. ", " .. path_request.position.y)
         tpm.return_train_path_result(path)
         return
     end
@@ -350,8 +350,8 @@ function tpm.process_path_request(path_request)
         return_path = true,
     }
     if not result.found_path or not result.path then
-        game.print("No path found for train id: " .. path_request.id .. " (queued for retry)")
-        log("No path found for train id: " .. path_request.id .. " — queuing for retry")
+        game.print("[gridworld:tpm] No path found for train id: " .. path_request.id .. " (queued for retry)")
+        log("[gridworld:tpm] No path found for train id: " .. path_request.id .. " — queuing for retry")
         tpm.queue_path_request(path_request)
         return
     end
@@ -446,17 +446,17 @@ function tpm.create_train_proxy(json)
     -- Find the destination connector rails from universal_edges storage
     local edge = storage.universal_edges and storage.universal_edges.edges and storage.universal_edges.edges[edge_id]
     if not edge then
-        log("create_train_proxy: edge not found: " .. tostring(edge_id))
+        log("[gridworld:tpm] create_train_proxy: edge not found: " .. tostring(edge_id))
         return
     end
     local link = edge.linked_trains and edge.linked_trains[offset]
     if not link then
-        log("create_train_proxy: train link not found at offset " .. tostring(offset) .. " for edge " .. tostring(edge_id))
+        log("[gridworld:tpm] create_train_proxy: train link not found at offset " .. tostring(offset) .. " for edge " .. tostring(edge_id))
         return
     end
     local rail = link.rails and link.rails[#link.rails - 1]
     if not rail or not rail.valid then
-        log("create_train_proxy: no valid rail at offset " .. tostring(offset) .. " for edge " .. tostring(edge_id))
+        log("[gridworld:tpm] create_train_proxy: no valid rail at offset " .. tostring(offset) .. " for edge " .. tostring(edge_id))
         return
     end
 
@@ -473,7 +473,7 @@ function tpm.create_train_proxy(json)
         force = "enemy",
     }
     if not loco then
-        log("create_train_proxy: failed to create proxy locomotive")
+        log("[gridworld:tpm] create_train_proxy: failed to create proxy locomotive")
         return
     end
 
