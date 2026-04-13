@@ -70,11 +70,7 @@ function rail_sync_manager.collect_and_send_rail_entities()
 		return a.y < b.y
 	end)
 	local payload = { tile_x = config.tile_x, tile_y = config.tile_y, tile_size = config.tile_size, entities = results }
-	local serialized = helpers.table_to_json(payload)
-	if storage.gridworld_last_rail_entities_json ~= serialized then
-		storage.gridworld_last_rail_entities_json = serialized
-		clusterio_api.send_json("gridworld:rail_entities", payload)
-	end
+	clusterio_api.send_json("gridworld:rail_entities", payload)
 end
 
 -- Collect all ue_source_trainstop entities on every surface and send them via IPC.
