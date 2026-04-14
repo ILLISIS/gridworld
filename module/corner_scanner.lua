@@ -43,7 +43,7 @@ function corner_scanner.poll_corners()
 			}
 			for _, entity in ipairs(entities) do
 				if entity.valid then
-					corner_scanner.handle_corner_entity(entity, corner_name)
+					local driver_name, passenger_name
 					if entity.type == "character" then
 						if entity.player then
 							found_players[entity.player.name] = true
@@ -51,13 +51,16 @@ function corner_scanner.poll_corners()
 					elseif entity.type == "spider-vehicle" or entity.type == "car" then
 						local driver = entity.get_driver()
 						if driver and driver.player then
-							found_players[driver.player.name] = true
+							driver_name = driver.player.name
+							found_players[driver_name] = true
 						end
 						local passenger = entity.get_passenger()
 						if passenger and passenger.player then
-							found_players[passenger.player.name] = true
+							passenger_name = passenger.player.name
+							found_players[passenger_name] = true
 						end
 					end
+					corner_scanner.handle_corner_entity(entity, corner_name, driver_name, passenger_name)
 				end
 			end
 		end
@@ -72,55 +75,43 @@ function corner_scanner.poll_corners()
 	end
 end
 
+---@param player_name string
+---@param corner string
+---@param world_position table
+local function send_occupant_teleport(player_name, corner, world_position)
+	local waiting = storage.gridworld.players_waiting_to_leave_diagonal
+	if not waiting[player_name] then
+		waiting[player_name] = {
+			corner = corner,
+			world_position = world_position,
+		}
+		clusterio_api.send_json("gridworld:corner_teleport_player", {
+			player_name = player_name,
+			corner = corner,
+			world_position = world_position,
+		})
+	end
+end
+
 ---@param entity LuaEntity
 ---@param corner string
-function corner_scanner.handle_corner_entity(entity, corner)
+---@param driver_name string|nil
+---@param passenger_name string|nil
+function corner_scanner.handle_corner_entity(entity, corner, driver_name, passenger_name)
+	local world_position = {entity.position.x, entity.position.y}
+
 	if entity.type == "character" then
 		if entity.player then
-			local waiting = storage.gridworld.players_waiting_to_leave_diagonal
-			if not waiting[entity.player.name] then
-				waiting[entity.player.name] = {
-					corner = corner,
-					world_position = {entity.position.x, entity.position.y},
-				}
-				clusterio_api.send_json("gridworld:corner_teleport_player", {
-					player_name = entity.player.name,
-					corner = corner,
-					world_position = {entity.position.x, entity.position.y},
-				})
-			end
+			send_occupant_teleport(entity.player.name, corner, world_position)
 		end
 	elseif entity.type == "spider-vehicle" or entity.type == "car" then
-		local driver_name = nil
-		local passenger_name = nil
-		local driver = entity.get_driver()
-		if driver and driver.player then
-			driver_name = driver.player.name
-			storage.gridworld.players_waiting_to_leave_diagonal[driver_name] = {
-				corner = corner,
-				world_position = {entity.position.x, entity.position.y},
-			}
-			clusterio_api.send_json("gridworld:corner_teleport_player", {
-				player_name = driver_name,
-				corner = corner,
-				world_position = {entity.position.x, entity.position.y},
-			})
+		if driver_name then
+			send_occupant_teleport(driver_name, corner, world_position)
 		end
-		local passenger = entity.get_passenger()
-		if passenger and passenger.player then
-			passenger_name = passenger.player.name
-			storage.gridworld.players_waiting_to_leave_diagonal[passenger_name] = {
-				corner = corner,
-				world_position = {entity.position.x, entity.position.y},
-			}
-			clusterio_api.send_json("gridworld:corner_teleport_player", {
-				player_name = passenger_name,
-				corner = corner,
-				world_position = {entity.position.x, entity.position.y},
-			})
+		if passenger_name then
+			send_occupant_teleport(passenger_name, corner, world_position)
 		end
 
-		local world_position = {entity.position.x, entity.position.y}
 		local serialized = universal_serializer.LuaEntity.serialize(entity)
 		entity.destroy{raise_destroy = true}
 
