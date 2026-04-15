@@ -300,9 +300,9 @@ function tpm.process_path_request(path_request)
         end
     end
     if #goals == 0 then
-        game.print("[gridworld:tpm] No valid train stops found for destination: " .. path_request.destination)
-        log("[gridworld:tpm] No valid train stops found for destination: " .. path_request.destination)
-        tpm.return_train_path_result(path) -- empty path
+        game.print("[gridworld:tpm] No valid train stops found for destination: " .. path_request.destination .. " (queued for retry)")
+        log("[gridworld:tpm] No valid train stops found for destination: " .. path_request.destination .. " — queuing for retry")
+        tpm.queue_path_request(path_request)
         return
     end
     -- find starting rail (may be straight or curved)
