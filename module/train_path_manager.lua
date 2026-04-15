@@ -171,19 +171,19 @@ function tpm.apply_train_path_result(json)
     end
 
     -- insert ue_source_trainstop names as temporary schedule records before the current destination
-    local schedule = LuaTrain.schedule or { current = 1, records = {} }
-    local insert_index = schedule.current
-    for i, stop_name in ipairs(path) do
-        table.insert(schedule.records, insert_index + i - 1, {
-            station = stop_name,
-            temporary = true,
-        })
-    end
-    -- point to the first temporary stop so the train paths there
-    schedule.current = insert_index
+    local lua_schedule = LuaTrain.get_schedule()
+    local insert_index = lua_schedule.current
     -- suppress on_train_schedule_changed from clearing the pending entry
     storage.gridworld._applying_path = path_result.id
-    LuaTrain.schedule = schedule
+    for i, stop_name in ipairs(path) do
+        lua_schedule.add_record{
+            station = stop_name,
+            temporary = true,
+            index = { schedule_index = insert_index + i - 1 },
+        }
+    end
+    -- point to the first temporary stop so the train paths there
+    lua_schedule.go_to_station(insert_index)
     storage.gridworld._applying_path = nil
     LuaTrain.manual_mode = false
     -- remove train status text
@@ -193,24 +193,15 @@ function tpm.apply_train_path_result(json)
 end
 
 function tpm.remove_temporary_schedule_stops(LuaTrain)
-    local schedule = LuaTrain.schedule
-    if not schedule or not schedule.records then return end
-    local new_records = {}
-    local current = schedule.current
-    local removed_before_current = 0
-    for i, record in ipairs(schedule.records) do
-        if record.temporary and tpm.is_edge_stop(record.station) then
-            if i < current then
-                removed_before_current = removed_before_current + 1
-            end
-        else
-            table.insert(new_records, record)
+    local lua_schedule = LuaTrain.get_schedule()
+    if not lua_schedule then return end
+    local records = lua_schedule.get_records()
+    if not records then return end
+    -- Remove in reverse order so indices stay valid
+    for i = #records, 1, -1 do
+        if records[i].temporary and tpm.is_edge_stop(records[i].station) then
+            lua_schedule.remove_record{ schedule_index = i }
         end
-    end
-    if #new_records ~= #schedule.records then
-        schedule.records = new_records
-        schedule.current = math.max(1, math.min(#new_records, current - removed_before_current))
-        LuaTrain.schedule = schedule
     end
 end
 
