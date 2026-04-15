@@ -349,17 +349,17 @@ ue_hooks.register("LuaTrain", "post_serialize", function(train_data, context)
 	return train_data
 end)
 
--- Destroy train pathing proxy for the arriving train's destination
-ue_hooks.register("LuaTrainComplete", "post_deserialize", function(train_data, context)
-	local first_locomotive = context.first_locomotive
+-- Destroy train pathing proxy for the arriving train's destination BEFORE the train is spawned.
+-- This must run in pre_deserialize (not post_deserialize) to remove the proxy before Factorio
+-- evaluates the new train's schedule and sees the station as full.
+ue_hooks.register("LuaTrainComplete", "pre_deserialize", function(train_data, _context)
 	local proxies = storage.gridworld and storage.gridworld.train_proxies
 	if not proxies then return end
 
-	local schedule = first_locomotive and first_locomotive.valid
-		and first_locomotive.train and first_locomotive.train.schedule
-	if not schedule then return end
+	local schedule = train_data.train and train_data.train.schedule
+	if not schedule or not schedule.records then return end
 
-	local record = schedule.records and schedule.records[schedule.current]
+	local record = schedule.records[schedule.current]
 	local destination = record and record.station
 	if not destination or not proxies[destination] or #proxies[destination] == 0 then return end
 
