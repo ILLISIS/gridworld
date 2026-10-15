@@ -1,6 +1,5 @@
 local t = require("modules/v2_test/testlib")
 local tile = require("modules/gridworld/tile")
-local pushback = require("modules/gridworld/pushback")
 
 -- The shared tile (tile_game_test.lua): (40, 40) at T = 64, configured at tick 100. This file owns tick 90, 400-499
 -- and the robot's poll to 3000; 430 and 440 are the surfaces plan's (a platform, a surface that is no planet, and
@@ -187,11 +186,9 @@ t.case("build: on a space platform's surface and on a surface that is no planet,
 		ctx.expect(platform ~= nil and platform.surface ~= nil, "a platform with a surface (U12)")
 		local b = storage.gridworld.tiles.nauvis
 		local x, y = b.x2 + 20.5, TY * T + 0.5 -- outside the tile's bounds, were they this surface's
-		-- { surface, ground, with a character }: a platform's character lives in its hub, so the push-back check is the
-		-- non-planet surface's (one code path: no record).
-		local cases = { { game.create_surface("gw-other"), "grass-1", true } }
+		local cases = { { game.create_surface("gw-other"), "grass-1" } }
 		if platform and platform.surface then
-			cases[2] = { platform.surface, "space-platform-foundation", false }
+			cases[2] = { platform.surface, "space-platform-foundation" }
 		end
 		for _, c in ipairs(cases) do
 			local surface, ground = c[1], c[2]
@@ -206,13 +203,6 @@ t.case("build: on a space platform's surface and on a surface that is no planet,
 				tile.on_enemy({ entity = chest })
 				ctx.expect(chest.valid, surface.name .. ": and so is it by the enemy rule")
 				chest.destroy()
-			end
-			if c[3] then
-				local character = surface.create_entity({ name = "character", position = { x + 2, y }, force = "player" })
-				ctx.expect(character ~= nil and not pushback.push(character), surface.name .. ": push-back leaves a character alone")
-				if character then
-					character.destroy()
-				end
 			end
 			local prefix, queued_here = surface.name .. "|", false
 			for k in pairs(storage.gridworld.cleanup) do

@@ -24,6 +24,14 @@ function zones.place(surface, _, x, y)
 	end
 end
 
-ue.players.zones({ name = "gridworld", zone = zones.zone, place = zones.place })
+--- Crossing-arrival spec §5.2: a body outside this tile, at any distance, is brought back in.
+function zones.outside(surface, x, y)
+	local t = tile(surface)
+	if t and not core.inside(t, x, y) then
+		return core.contain(t, x, y)
+	end
+end
+
+ue.players.zones({ name = "gridworld", zone = zones.zone, place = zones.place, outside = zones.outside })
 
 return zones

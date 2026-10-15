@@ -7,7 +7,7 @@ local tile = require("modules/gridworld/tile")
 -- the spawn area, so its whole generation square starts ungenerated — on every planet of the test mod set, Space Age's
 -- five (surfaces spec §7). UE's last ue.edge.sync is at 95, and UE's runtime case raises on_server_startup at 3900. Each
 -- gridworld file owns its ticks: build 90 and 400-499; tile 97-199, a drain poll every 100 ticks to 3800, and 3810;
--- time 200-299 and 2400-3850; corners 300-399 (Planning ruling 7); pushback 500-599. The tile's four planet surfaces
+-- time 200-299 and 2400-3850; corners 300-399 (Planning ruling 7). The tile's four planet surfaces
 -- other than Nauvis are gridworld's alone in the shared save.
 local T, TX, TY = 64, 40, 40
 local PLANETS = { "aquilo", "fulgora", "gleba", "nauvis", "vulcanus" }
@@ -111,7 +111,7 @@ t.case("tile: the first config tiles every planet — a surface each (Fulgora's 
 			local rec, surface = s.tiles[name], game.get_surface(name)
 			ctx.expect(surface ~= nil and rec ~= nil and rec.surface == name, name .. ": a surface and its record")
 			if surface and rec then
-				surface.peaceful_mode = true -- the build and pushback cases work beside this tile
+				surface.peaceful_mode = true -- the build cases work beside this tile
 				ctx.expect(rec.x == TX and rec.x1 == TX * T - T / 2 and rec.y2 == TY * T + T / 2, name .. ": the tile's bounds")
 				ctx.expect(rec.swept and rec.gen ~= nil and rec.gen.pending == 121,
 					name .. ": swept, and the square's 121 chunks pending; got " .. tostring(rec.gen and rec.gen.pending))

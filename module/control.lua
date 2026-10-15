@@ -11,7 +11,6 @@ runtime.migrations.register("gridworld", require("modules/gridworld/schema_core"
 
 local tile = require("modules/gridworld/tile")
 require("modules/gridworld/zones")
-local pushback = require("modules/gridworld/pushback")
 require("modules/gridworld/evolution") -- cross-border biters spec §8: its report task and apply handler
 local send = runtime.bridge.channel("gridworld")
 
@@ -42,8 +41,7 @@ control.events[defines.events.on_built_entity] = tile.on_built_entity
 control.events[defines.events.on_robot_built_entity] = tile.on_robot_built_entity
 control.events[defines.events.on_biter_base_built] = tile.on_enemy
 control.events[defines.events.on_entity_spawned] = tile.on_enemy
--- §12.5: push-back, the only player handler gridworld has; crossing is UE's, with gridworld's corner zones as its
--- hook (player-crossing spec §7.1).
-control.events[defines.events.on_player_changed_position] = pushback.on_player_changed_position
+-- No player handler: gridworld doesn't move players; crossing is UE's, with gridworld's corner zones as its hook
+-- (player-crossing spec §7.1, crossing-arrival spec §4).
 
 return control

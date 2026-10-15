@@ -7,13 +7,6 @@ local core = {}
 --- at most 26 map tiles out, and a v1-sized train box.
 core.MARGIN_CHUNKS = 4
 
---- Pushback's clamp distance (§12.5, owner ruling 2026-10-04): the inner face of UE's `ue-barrier` band (DEPTH -
---- SIZE/2 = 6 map tiles out) minus half a tile, so the clamped point never touches the barrier itself. Derived from
---- UE's own geometry, not hard-coded, so a change to the barrier's depth or size keeps this in step. A walking
---- player is physically stopped by the barrier 6 tiles out; this keeps a flying (mech armor) player from getting
---- any further than that.
-core.PUSHBACK_MARGIN = geometry.DEPTH - geometry.SIZE / 2 - 0.5
-
 --- Tile (x, y) of size T covers [xT - T/2, xT + T/2) x [yT - T/2, yT + T/2) (§5.1).
 function core.bounds(x, y, size)
 	local h = size / 2
@@ -97,39 +90,21 @@ function core.corner_zone(t, x, y, current)
 	return nil
 end
 
+--- (x, y) clamped into t shrunk by 0.5, with a box of +-8 clipped to it (crossing-arrival spec §5.2): inside_point
+--- without its FAR limit.
+function core.contain(t, x, y)
+	local lx, ly, hx, hy = t.x1 + 0.5, t.y1 + 0.5, t.x2 - 0.5, t.y2 - 0.5
+	local px, py = math.min(math.max(x, lx), hx), math.min(math.max(y, ly), hy)
+	return px, py, { { math.max(px - 8, lx), math.max(py - 8, ly) }, { math.min(px + 8, hx), math.min(py + 8, hy) } }
+end
+
 --- The nearest point at least 0.5 inside t to (x, y), and the box within 8 of it and 0.5 inside t, where a free spot
 --- is looked for (crossing spec §6.2); nil when (x, y) is FAR or more outside t on either axis.
 function core.inside_point(t, x, y)
 	if x <= t.x1 - core.FAR or x >= t.x2 + core.FAR or y <= t.y1 - core.FAR or y >= t.y2 + core.FAR then
 		return nil
 	end
-	local lx, ly, hx, hy = t.x1 + 0.5, t.y1 + 0.5, t.x2 - 0.5, t.y2 - 0.5
-	local px, py = math.min(math.max(x, lx), hx), math.min(math.max(y, ly), hy)
-	return px, py, { { math.max(px - 8, lx), math.max(py - 8, ly) }, { math.min(px + 8, hx), math.min(py + 8, hy) } }
-end
-
---- The point (x, y), clamped independently on each axis that is more than margin outside t, to exactly margin
---- outside on that axis; nil if neither axis is past its line by more than margin (§12.5, owner ruling: "clamp at
---- 5.5"). Each axis is judged and clamped on its own overshoot alone — an axis that is outside but not past margin
---- is left exactly as it is, never pulled in just because the other axis was clamped, and the clamp never crosses
---- into the tile (it lands exactly margin out, still outside). Covers an edge, a corner (each axis independent) and
---- the outer border alike, since it reads only t's own bounds.
-function core.push_target(t, x, y, margin)
-	local cx, cy, pushed = x, y, false
-	if x < t.x1 - margin then
-		cx, pushed = t.x1 - margin, true
-	elseif x > t.x2 + margin then
-		cx, pushed = t.x2 + margin, true
-	end
-	if y < t.y1 - margin then
-		cy, pushed = t.y1 - margin, true
-	elseif y > t.y2 + margin then
-		cy, pushed = t.y2 + margin, true
-	end
-	if pushed then
-		return cx, cy
-	end
-	return nil
+	return core.contain(t, x, y)
 end
 
 --- The generation square (§9.1): the chunk holding tile (x, y)'s centre, and a radius of T/64 + MARGIN_CHUNKS.
