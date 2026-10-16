@@ -17,15 +17,32 @@ function border.pollutant(surface)
 end
 
 --- Spec §4: an outside chunk of t in the second row gets one sink at its centre, once; tile.clean_chunk calls this for
---- every outside chunk, at generation and after a re-sweep. None while the pollution_border toggle is off.
+--- every outside chunk, at generation and after a re-sweep. Always placed (owner, 2026-10-16): the toggle covers the sweep
+--- and the report only.
 function border.sink(t, surface, cx, cy)
-	if tile_core.ring(t, cx, cy) ~= 2 or not border.pollutant(surface) or not prototypes.entity[core.SINK]
-		or not core.on(storage.gridworld.toggles, "pollution_border") then
+	if tile_core.ring(t, cx, cy) ~= 2 or not border.pollutant(surface) or not prototypes.entity[core.SINK] then
 		return -- no sink prototype: the UE mod in the pack predates it (as barriers.place skips a missing ue-barrier)
 	end
 	local area = { { cx * 32, cy * 32 }, { cx * 32 + 32, cy * 32 + 32 } }
 	if surface.count_entities_filtered({ name = core.SINK, area = area, limit = 1 }) == 0 then
 		surface.create_entity({ name = core.SINK, position = { cx * 32 + 16, cy * 32 + 16 }, force = "neutral" })
+	end
+end
+
+--- At each boot's first config (tile.lua): every generated ring-2 chunk sunk again, for a world whose chunks were cleaned
+--- before sinks were always placed; border.sink skips a chunk that has one.
+function border.sink_all()
+	for name, t in pairs(storage.gridworld.tiles) do
+		local surface = game.get_surface(name)
+		if surface then
+			for cx = t.x1 / 32 - 2, t.x2 / 32 + 1 do
+				for cy = t.y1 / 32 - 2, t.y2 / 32 + 1 do
+					if tile_core.ring(t, cx, cy) == 2 and surface.is_chunk_generated({ cx, cy }) then
+						border.sink(t, surface, cx, cy)
+					end
+				end
+			end
+		end
 	end
 end
 

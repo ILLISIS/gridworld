@@ -37,9 +37,9 @@ export const plugin: lib.PluginDeclaration = {
 	controllerConfigFields: {
 		"gridworld.pollution_border": toggle(
 			"Pollution border",
-			"The border's first-row sweep, the leak report to the neighbour and new sinks in the second row. Off, " +
-			"pollution leaks past the border as before (gridworld's cleanup still clears what it generates) and " +
-			"raids have no virtual pollution to feed on.",
+			"The border's first-row sweep and the leak report to the neighbour. Off, the second row's sinks still " +
+			"absorb what crosses the border, so pollution doesn't spread outside, but nothing reaches the neighbour " +
+			"and raids have no virtual pollution to feed on.",
 		),
 		"gridworld.cross_border_raids": toggle(
 			"Cross-border raids",

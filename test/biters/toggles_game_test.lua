@@ -35,8 +35,8 @@ local function with(toggles, fn)
 	end
 end
 
-t.case("toggles: pollution_border off, the first row isn't swept, no leak report goes and no sink is placed; on, all "
-	.. "three resume", function(ctx)
+t.case("toggles: pollution_border off, the first row isn't swept, no leak report goes, but the sink is placed (owner, 2026-10-16); on, "
+	.. "the sweep and the report resume", function(ctx)
 	local S, ID = "bt-tg-border", "bt-tgb"
 	local SINK_AREA = { { 96, 0 }, { 128, 32 } } -- chunk (3, 0), in the second outside row
 	ctx.at(5, function()
@@ -63,13 +63,13 @@ t.case("toggles: pollution_border off, the first row isn't swept, no leak report
 		end)
 		ctx.expect(surface.get_pollution({ 80, -48 }) == 6, "off: not swept")
 		ctx.expect(c.acc == 5, "off: no report took what was gathered")
-		ctx.expect(sinks() == 0, "off: no sink placed")
+		ctx.expect(sinks() == 1, "off: the sink is placed all the same")
 		border.sweep(c, game.tick)
 		ctx.expect(surface.get_pollution({ 80, -48 }) == 0 and c.acc == 11, "on: swept, into the report; acc " .. c.acc)
 		poll(ep, game.tick)
 		ctx.expect(c.acc == 0, "on: reported")
 		border.sink(rec, surface, 3, 0)
-		ctx.expect(sinks() == 1, "on: the sink placed")
+		ctx.expect(sinks() == 1, "on: still the one sink")
 	end)
 	local function arrived(offset)
 		ctx.at(offset, function()
@@ -107,7 +107,8 @@ t.case("toggles: cross_border_raids off, a spawner with a full virtual pool buys
 	ctx.expect_ipc("gridworld:out", '"surface":"bt-tg-raid"') -- its gw.raid formed line, once gathered
 end)
 
-t.case("toggles: pollution_border coming on sinks the second row cleaned while it was off, once (RC5)", function(ctx)
+t.case("toggles: sinks are placed with pollution_border off, kept when it goes off, and sink_all fills the gaps (owner, "
+	.. "2026-10-16)", function(ctx)
 	local S, CX = "bt-tg-resink", 3 -- chunk (3, 0), in the second outside row of the tile
 	local AREA = { { CX * 32, 0 }, { CX * 32 + 32, 32 } }
 	ctx.at(5, function()
@@ -122,14 +123,26 @@ t.case("toggles: pollution_border coming on sinks the second row cleaned while i
 			return surface.count_entities_filtered({ name = border_core.SINK, area = AREA })
 		end
 		local was, configured = s.toggles, s.configured
-		s.toggles, s.configured = { pollution_border = false }, true -- configured: the config applies only its toggles
+		s.toggles, s.configured = { pollution_border = true }, true -- configured: the config applies only its toggles
 		tile.clean_chunk(S, CX, 0)
-		ctx.expect(sinks() == 0, "off: the cleaned chunk has no sink")
+		ctx.expect(sinks() == 1, "on: the cleaned chunk has its sink")
 		ue_rt.inbox("gridworld", helpers.table_to_json({ { id = "00006e09.1", type = "gw.tile.config", payload = {
 			world = "bt", x = 0, y = 0, size = T, surface = S, seed = 1, trace = "00006e09.t1",
-			toggles = { pollution_border = true } } } }))
-		ctx.expect(s.toggles.pollution_border, "the toggle is on")
-		ctx.expect(sinks() == 1, "on: the chunk has its one sink; " .. sinks())
-		s.toggles, s.configured = was, configured -- the toggle was on (or unset: on) before, and is now
+			toggles = { pollution_border = false } } } }))
+		ctx.expect(s.toggles.pollution_border == false, "the toggle is off")
+		ctx.expect(sinks() == 1, "turning it off removes no sink; " .. sinks())
+		for _, e in ipairs(surface.find_entities_filtered({ name = border_core.SINK, area = AREA })) do
+			e.destroy()
+		end
+		tile.clean_chunk(S, CX, 0)
+		ctx.expect(sinks() == 1, "off: a cleaned chunk gets a sink; " .. sinks())
+		for _, e in ipairs(surface.find_entities_filtered({ name = border_core.SINK, area = AREA })) do
+			e.destroy()
+		end
+		border.sink_all()
+		ctx.expect(sinks() == 1, "sink_all adds a sink to a chunk that has none; " .. sinks())
+		border.sink_all()
+		ctx.expect(sinks() == 1, "and not a second one where there is one; " .. sinks())
+		s.toggles, s.configured = was, configured
 	end)
 end)

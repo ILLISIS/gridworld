@@ -145,11 +145,9 @@ local function report()
 end
 
 --- The biter toggles (owner, 2026-10-10) of a config that carries them: kept for gridworld's own (border_core.on), and
---- the two UE acts on handed to it. A change is logged. When pollution_border comes on, every generated ring-2 chunk is
---- sunk again: border.sink runs only from clean_chunk, so a second row cleaned while it was off has no sinks (RC5).
+--- the two UE acts on handed to it. A change is logged.
 local function toggle(p)
 	local s, kept, changed = storage.gridworld, {}, false
-	local was_off = (s.toggles or {}).pollution_border == false
 	for k, v in pairs(p.toggles) do
 		kept[k], changed = v, changed or (s.toggles or {})[k] ~= v
 	end
@@ -157,20 +155,6 @@ local function toggle(p)
 	ue.biters.set_enabled({ raids = kept.cross_border_raids, expansion = kept.cross_border_expansion })
 	if changed then
 		tile.emit("gw.tile", "toggles", "info", p.trace, p.toggles)
-	end
-	if was_off and kept.pollution_border ~= false then
-		for name, t in pairs(s.tiles) do
-			local surface = game.get_surface(name)
-			if surface then
-				for cx = t.x1 / 32 - 2, t.x2 / 32 + 1 do
-					for cy = t.y1 / 32 - 2, t.y2 / 32 + 1 do
-						if core.ring(t, cx, cy) == 2 and surface.is_chunk_generated({ cx, cy }) then
-							border.sink(t, surface, cx, cy)
-						end
-					end
-				end
-			end
-		end
 	end
 end
 
@@ -203,6 +187,7 @@ runtime.bridge.on("gridworld", "gw.tile.config", function(p)
 				s.tiles[name] = nil
 			end
 		end
+		border.sink_all() -- sinks are always placed; a chunk cleaned before that rule has none
 		border.rebuild() -- cross-border biters spec §4, §5: the sweep, the cloud and its absorption, for this boot's records
 		local freeplay = remote.interfaces.freeplay
 		if freeplay and freeplay.set_disable_crashsite and freeplay.set_skip_intro then
